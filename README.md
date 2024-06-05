@@ -1,2 +1,1 @@
-# PBQA
-Pattern Based Question and Answer
+# Pattern Based Question and Anser
