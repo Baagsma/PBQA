@@ -6,10 +6,9 @@ from typing import List, Union
 import requests
 import yaml
 
-from cf.config import cf
 from PBQA.db import DB
 
-log = logging.getLogger("main.llm")
+log = logging.getLogger()
 
 
 class LLM:
@@ -29,10 +28,8 @@ class LLM:
 
         Parameters:
         - db (DB): The database to use for storing and retrieving examples.
-        - host (str): The host of the LLM server.
+        - host (str): The host of the LLM server. Can also be passed when connecting model servers.
         """
-
-        log.error(f"Initializing LLM")
 
         self.db = db
 
@@ -43,6 +40,13 @@ class LLM:
         self.cache_ids = {}
 
         self.db.create_collection("history")
+
+        self.cf = {
+            "master_grammar": True,
+            "llm_response": True,
+            "formatting_settings": True,
+            "prompt_text": True,
+        }
 
     def connect_to_server(
         self,
@@ -103,7 +107,7 @@ class LLM:
         url = f"http://{host}:{port}"
 
         try:
-            property = requests.get(url + "/health")
+            requests.get(url + "/health")
             return True
         except requests.exceptions.RequestException as e:
             log.warn(
@@ -219,9 +223,9 @@ class LLM:
 
         llm_response = llm_response.json()
 
-        if cf["log"]["master_grammar"]:
+        if self.cf["master_grammar"]:
             log.info(f"master grammar:\n{grammar}")
-        if cf["log"]["llm_response"]:
+        if self.cf["llm_response"]:
             log.info(f"response:\n{yaml.dump(llm_response, default_flow_style=False)}")
 
         log.info(
@@ -272,10 +276,10 @@ class LLM:
         metadata = self.db.get_metadata(response)
         properties = metadata["properties"]
 
-        if cf["log"]["formatting_settings"]:
-            log.info(f"n_example: {n_example}")
-            log.info(f"n_hist: {n_hist}")
-            log.info(f"metadata:\n{yaml.dump(metadata, default_flow_style=False)}")
+        # if self.cf["formatting_settings"]:
+        log.info(f"n_example: {n_example}")
+        log.info(f"n_hist: {n_hist}")
+        log.info(f"metadata:\n{yaml.dump(metadata, default_flow_style=False)}")
 
         def format(
             responses: list[dict],
@@ -311,7 +315,6 @@ class LLM:
                 properties: List[str],
             ) -> dict[str, str]:
                 if len(properties) == 1:
-                    log.warn(f"response aksdasj: {response}")
                     return {"role": role, "content": response[properties[0]]}
                 else:
                     return {
@@ -414,7 +417,7 @@ class LLM:
 
             messages = messages[:-1]
 
-        if cf["log"]["prompt_text"]:
+        if self.cf["prompt_text"]:
             log_messages = [
                 f'{message["role"]}: {message["content"]}' for message in messages
             ]
@@ -535,11 +538,11 @@ string ::=
         external_properties = [
             prop
             for prop in metadata["properties"]
-            if prop in metadata and "external" in metadata[prop]
+            if prop in metadata and "external" in metadata[prop] and prop not in exclude
         ]
         if not set(external_properties).issubset(set(external.keys())):
             raise ValueError(
-                f"External properties {external_properties} not found in external properties {external}"
+                f"External properties {external_properties} not found in external properties {external}. Make sure to all external properties are provided, e.g. external={{'location': 'Amsterdam'}}."
             )
 
         output = self._get_response(
@@ -561,4 +564,9 @@ string ::=
         if len(set(metadata["properties"]) - set(exclude) - set(external.keys())) == 1:
             return answer
         else:
-            return json.loads(answer)
+            try:
+                return json.loads(answer)
+            except json.JSONDecodeError:
+                raise ValueError(
+                    f"Failed to decode JSON answer:\n\t{answer}\n\nMake sure the correct stop strings are configured for the model {model}."
+                )

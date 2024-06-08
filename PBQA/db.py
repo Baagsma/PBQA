@@ -11,9 +11,7 @@ from dateutil.parser import parse
 from qdrant_client import QdrantClient, models
 from sentence_transformers import SentenceTransformer
 
-from cf.config import cf
-
-log = logging.getLogger("main.vector_db")
+log = logging.getLogger()
 
 
 class DB:
@@ -37,16 +35,15 @@ class DB:
         - reset (bool, optional): Whether to reset the database. Defaults to False.
         """
 
-        log.error("Initializing DB")
         if not path:
-            raise FileNotFoundError("No db path provided")
+            raise FileNotFoundError("No path provided for the database.")
         self.path = path
 
         self.client = QdrantClient(path=self.path)
 
         self.encoder = SentenceTransformer(encoder)
 
-        if reset and cf["env"] == "dev":
+        if reset:
             log.info("Resetting db")
             self.reset()
 
@@ -95,7 +92,7 @@ class DB:
         prev = time()
 
         collection_name = file_name(path)
-        log.info(f"Adding collection {collection_name} to db")
+        log.info(f"Adding collection {collection_name} to the database")
 
         data = self.load_from_file(path)
         metadata = (
@@ -110,10 +107,7 @@ class DB:
             **kwargs,
         )
 
-        if cf["log"]["new_found_metadata"]:
-            log.info(
-                f"\twith metadata:\n{yaml.dump(metadata, default_flow_style=False)}"
-            )
+        log.info(f"\twith metadata:\n{yaml.dump(metadata, default_flow_style=False)}")
 
         if "examples" not in data:
             raise ValueError(
@@ -502,8 +496,6 @@ class DB:
             ),
         )
 
-        log.warn(f"doc: {docs[0]}")
-
         results = [
             {
                 "input": doc.payload["input"],
@@ -557,10 +549,7 @@ class DB:
         - models.Filter: The Qdrant filter.
         """
 
-        log.warn(f"filter: {filter}")
-
         def process_filter(key, operator, operand):
-            log.warn(f"\n\tkey: {key}\n\toperator: {operator}\n\toperand: {operand}")
             if is_valid_date(operand):
                 range = models.DatetimeRange()
             else:
@@ -627,10 +616,8 @@ class DB:
         for key, value in filter.items():
             if isinstance(value, dict):
                 if len(value) > 1:
-                    log.warn(f"Multiple keys found in value: {value}")  # TODO: Fix
                     must.append(process_filter(key, "$and", value))
                 else:
-                    log.warn(f"Single key found in value: {value}")
                     operator, operand = list(value.items())[0]
                     must.append(process_filter(key, operator, operand))
             else:
@@ -640,8 +627,6 @@ class DB:
             must=must if must else None,
             should=should if should else None,
         )
-
-        log.warn(f"filter: {result}")
 
         return result
 
