@@ -1,0 +1,3 @@
+PyYAML
+qdrant-client
+sentence-transformers

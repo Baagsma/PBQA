@@ -24,7 +24,7 @@ class DB:
 
     def __init__(
         self,
-        db_path: str,
+        path: str,
         encoder: str = DEFAULT_ENCODER,
         reset: bool = False,
     ):
@@ -32,17 +32,17 @@ class DB:
         Initialize the DB client.
 
         Parameters:
-        - db_path (str, optional): The path to the database. Defaults to `paths.db_dir` from the config file.
+        - path (str): The path to the database. Defaults to `paths.db_dir` from the config file.
         - encoder (str): The name of the SentenceTransformer model to use for encoding documents.
         - reset (bool, optional): Whether to reset the database. Defaults to False.
         """
 
         log.error("Initializing DB")
-        if not db_path:
+        if not path:
             raise FileNotFoundError("No db path provided")
-        self.db_path = db_path
+        self.path = path
 
-        self.client = QdrantClient(path=self.db_path)
+        self.client = QdrantClient(path=self.path)
 
         self.encoder = SentenceTransformer(encoder)
 
