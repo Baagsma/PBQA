@@ -92,7 +92,7 @@ class DB:
         prev = time()
 
         collection_name = file_name(path)
-        log.info(f"Adding collection {collection_name} to the database")
+        log.info(f"Populating collection {collection_name} with {path}")
 
         data = self.load_from_file(path)
         metadata = (
@@ -107,8 +107,6 @@ class DB:
             **kwargs,
         )
 
-        log.info(f"\twith metadata:\n{yaml.dump(metadata, default_flow_style=False)}")
-
         if "examples" not in data:
             raise ValueError(
                 f"File {path} does not contain any examples. Even if never used, at least one example is required to determine the collection properties."
@@ -120,11 +118,8 @@ class DB:
                 collection_name=collection_name,
                 base_example=True,
             )
-            log.info(f"\tadding {item}")
 
-        log.info(
-            f"Added {len(data['examples'])} documents in {(time() - prev) * 1000:.3f} ms"
-        )
+        log.info(f"Added {len(data['examples'])} documents in {(time() - prev):.1f} s")
 
         return collection_name
 
@@ -148,7 +143,9 @@ class DB:
         - Topic: The collection with the given name.
         """
         if collection_name not in self.get_collections():
-            log.info(f"Creating collection for collection {collection_name}")
+            log.info(
+                f"Creating collection {collection_name} with metadata:\n{yaml.dump(metadata, default_flow_style=False)}"
+            )
 
             config = models.VectorParams(
                 size=self.encoder.get_sentence_embedding_dimension(),
@@ -253,8 +250,6 @@ class DB:
         - List[str]: A list of properties from the file.
         """
 
-        prev = time()
-
         data = self.load_from_file(path)
         exclude.append("input")  # Exclude "input" property by default
 
@@ -263,9 +258,7 @@ class DB:
             if property not in properties and property not in exclude:
                 properties.append(property)
 
-        log.info(
-            f"Got {len(properties)} properties from {path} in {(time() - prev) * 1000:.3f} ms"
-        )
+        log.info(f"Retrieved {len(properties)} properties from {path}")
         return properties
 
     def get_properties(self, collection_name: str) -> List[str]:
@@ -355,7 +348,7 @@ class DB:
         input: str = "",
         n: int = DEFAULT_RESULT_COUNT,
         min_d: Union[int, None] = None,
-        where: List[str] = None,
+        where: dict = None,
         **kwargs,
     ) -> List[dict]:
         """
@@ -406,8 +399,6 @@ class DB:
 
         query_filter = self.filter_to_qdrant_filter(where)
 
-        log.warn(f"query_filter: {query_filter}")
-
         docs = self.client.search(
             collection_name=collection_name,
             query_filter=query_filter,
@@ -415,8 +406,6 @@ class DB:
             query_vector=self.encoder.encode(input),
             score_threshold=min_d,
         )
-
-        log.warn(f"docs: {docs}")
 
         results = [
             {
@@ -537,25 +526,34 @@ class DB:
 
     @staticmethod
     def filter_to_qdrant_filter(filter: dict) -> models.Filter:
-        """
-        Convert a filter dictionary to a Qdrant filter.
+        def process_filter(key, value):
+            if isinstance(value, dict):
+                operator, operand = list(value.items())[0]
+            else:
+                operator, operand = "$eq", value
 
-        This method converts a filter dictionary to a Qdrant filter.
-
-        Parameters:
-        - filter (dict): The filter dictionary to convert.
-
-        Returns:
-        - models.Filter: The Qdrant filter.
-        """
-
-        def process_filter(key, operator, operand):
             if is_valid_date(operand):
                 range = models.DatetimeRange()
             else:
                 range = models.Range()
 
-            if operator == "$eq":
+            if key == "$and":
+                if not isinstance(operand, List):
+                    raise ValueError(
+                        f"Invalid operand {operand} for operator $and. Should be a list."
+                    )
+                return models.Filter(
+                    must=[process_filter(*list(item.items())[0]) for item in operand]
+                )
+            elif key == "$or":
+                if not isinstance(operand, List):
+                    raise ValueError(
+                        f"Invalid operand {operand} for operator $or. Should be a list."
+                    )
+                return models.Filter(
+                    should=[process_filter(*list(item.items())[0]) for item in operand]
+                )
+            elif operator == "$eq":
                 return models.FieldCondition(
                     key=key, match=models.MatchValue(value=operand)
                 )
@@ -595,16 +593,6 @@ class DB:
                 return models.FieldCondition(
                     key=key, match=models.MatchExcept(**{"except": operand})
                 )
-            elif operator == "$and":
-                return models.Filter(
-                    must=[process_filter(key, op, opnd) for op, opnd in operand.items()]
-                )
-            elif operator == "$or":
-                return models.Filter(
-                    should=[
-                        process_filter(key, op, opnd) for op, opnd in operand.items()
-                    ]
-                )
             else:
                 raise ValueError(f"Invalid operator {operator}")
 
@@ -614,14 +602,18 @@ class DB:
         must = []
         should = []
         for key, value in filter.items():
-            if isinstance(value, dict):
-                if len(value) > 1:
-                    must.append(process_filter(key, "$and", value))
-                else:
-                    operator, operand = list(value.items())[0]
-                    must.append(process_filter(key, operator, operand))
+            if key in ["$and", "$or"]:
+                if not isinstance(value, list):
+                    raise ValueError(
+                        f"Invalid value {value} for operator {key}. Should be a list."
+                    )
+                for item in value:
+                    if key == "$and":
+                        must.append(process_filter(*list(item.items())[0]))
+                    elif key == "$or":
+                        should.append(process_filter(*list(item.items())[0]))
             else:
-                must.append(process_filter(key, "$eq", value))
+                must.append(process_filter(key, value))
 
         result = models.Filter(
             must=must if must else None,
