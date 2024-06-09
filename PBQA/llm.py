@@ -348,9 +348,7 @@ class LLM:
                     (
                         {
                             "role": "system",
-                            "content": metadata[
-                                "system_message"
-                            ],  # TODO: MULT When changing responses to examples, change the system message to go up one level in the hierarchy
+                            "content": metadata["system_message"],
                         }
                     )
                 ]

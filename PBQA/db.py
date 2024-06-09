@@ -55,6 +55,7 @@ class DB:
                 ),
             )
 
+        # TODO: Rename responses to patterns and properties to components
         self.response_properties = {}
 
     def load_responses(self, path: str):
