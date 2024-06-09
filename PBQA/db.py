@@ -92,7 +92,7 @@ class DB:
         prev = time()
 
         collection_name = file_name(path)
-        log.info(f"Adding collection {collection_name} to the database")
+        log.info(f"Populating collection {collection_name} with {path}")
 
         data = self.load_from_file(path)
         metadata = (
@@ -107,8 +107,6 @@ class DB:
             **kwargs,
         )
 
-        log.info(f"\twith metadata:\n{yaml.dump(metadata, default_flow_style=False)}")
-
         if "examples" not in data:
             raise ValueError(
                 f"File {path} does not contain any examples. Even if never used, at least one example is required to determine the collection properties."
@@ -120,11 +118,8 @@ class DB:
                 collection_name=collection_name,
                 base_example=True,
             )
-            log.info(f"\tadding {item}")
 
-        log.info(
-            f"Added {len(data['examples'])} documents in {(time() - prev) * 1000:.3f} ms"
-        )
+        log.info(f"Added {len(data['examples'])} documents in {(time() - prev):.1f} s")
 
         return collection_name
 
@@ -148,7 +143,9 @@ class DB:
         - Topic: The collection with the given name.
         """
         if collection_name not in self.get_collections():
-            log.info(f"Creating collection for collection {collection_name}")
+            log.info(
+                f"Creating collection {collection_name} with metadata:\n{yaml.dump(metadata, default_flow_style=False)}"
+            )
 
             config = models.VectorParams(
                 size=self.encoder.get_sentence_embedding_dimension(),
@@ -253,8 +250,6 @@ class DB:
         - List[str]: A list of properties from the file.
         """
 
-        prev = time()
-
         data = self.load_from_file(path)
         exclude.append("input")  # Exclude "input" property by default
 
@@ -263,9 +258,7 @@ class DB:
             if property not in properties and property not in exclude:
                 properties.append(property)
 
-        log.info(
-            f"Got {len(properties)} properties from {path} in {(time() - prev) * 1000:.3f} ms"
-        )
+        log.info(f"Retrieved {len(properties)} properties from {path}")
         return properties
 
     def get_properties(self, collection_name: str) -> List[str]:

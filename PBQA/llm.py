@@ -47,10 +47,10 @@ class LLM:
             "prompt_text": True,
         }
 
-    def connect_to_server(
+    def connect_model(
         self,
-        port: int,
         model: str,
+        port: int,
         host: str = None,
         temperature: float = 1.2,
         min_p: float = 0.07,
@@ -63,8 +63,8 @@ class LLM:
         Connect to an LLM server.
 
         Parameters:
-        - port (int): The port of the LLM server.
         - model (str): The model to use for generating responses.
+        - port (int): The port of the LLM server.
         - host (str): The host of the LLM server.
         - temperature (float): The temperature to use for generating responses.
         - min_p (float): The minimum probability to use for generating responses.
@@ -82,8 +82,7 @@ class LLM:
             raise ValueError("Failed to connect to LLM server. No host provided.")
 
         if self.poke_server(host, port):
-            log.info(f"Connected to LLM server at {host}:{port}")
-            log.info(f"\tmodel: {model}")
+            log.info(f"Connected to model {model} at {host}:{port}")
         else:
             raise ValueError(
                 f"Failed to connect to LLM server at {host}:{port}. Ensure the server is running."
@@ -268,9 +267,7 @@ class LLM:
 
         metadata = self.db.get_metadata(response)
         properties = metadata["properties"]
-        log.info(f"n_example: {n_example}")
-        log.info(f"n_hist: {n_hist}")
-        log.info(f"metadata:\n{yaml.dump(metadata, default_flow_style=False)}")
+        log.info(yaml.dump(metadata, default_flow_style=False))
 
         def format(
             responses: list[dict],
@@ -421,6 +418,9 @@ class LLM:
             messages += format(hist)
 
             messages = messages[:-1]
+
+        log.info(f"Examples: {len(examples)}/{n_example}")
+        log.info(f"History: {len(hist) - 1}/{n_hist}")
 
         log.info(
             "Messages:\n"
