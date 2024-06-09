@@ -42,7 +42,6 @@ class LLM:
         self.db.create_collection("history")
 
         self.cf = {
-            "master_grammar": True,
             "llm_response": True,
             "formatting_settings": True,
             "prompt_text": True,
@@ -148,7 +147,7 @@ class LLM:
         """
 
         prev = time()
-        log.error(f"Generating response from LLM")
+        log.info(f"Generating response from LLM")
 
         metadata = self.db.get_metadata(response)
 
@@ -197,9 +196,6 @@ class LLM:
             "id_slot": self._get_cache_id(
                 response,
                 model,
-                continuous=(
-                    metadata["cache"]["continuous"] if "cache" in metadata else False
-                ),
             ),
             "cache_prompt": use_cache,
             "messages": messages,
@@ -223,10 +219,7 @@ class LLM:
 
         llm_response = llm_response.json()
 
-        if self.cf["master_grammar"]:
-            log.info(f"master grammar:\n{grammar}")
-        if self.cf["llm_response"]:
-            log.info(f"response:\n{yaml.dump(llm_response, default_flow_style=False)}")
+        log.info(f"response:\n{yaml.dump(llm_response, default_flow_style=False)}")
 
         log.info(
             f"Generated response in {time() - prev:.3f} s ({llm_response['usage']['completion_tokens']/(time() - prev):.1f} t/s)"
@@ -275,8 +268,6 @@ class LLM:
 
         metadata = self.db.get_metadata(response)
         properties = metadata["properties"]
-
-        # if self.cf["formatting_settings"]:
         log.info(f"n_example: {n_example}")
         log.info(f"n_hist: {n_hist}")
         log.info(f"metadata:\n{yaml.dump(metadata, default_flow_style=False)}")
@@ -293,21 +284,28 @@ class LLM:
             if not responses:
                 return []
 
-            include_set = set(include)
-            exclude_set = set(exclude)
-            properties_set = set(properties)
-            external_keys_set = set(external.keys())
+            external_keys_list = list(external.keys())
 
-            if include_set:
-                user_properties = ["input"] + list(
-                    include_set & external_keys_set - exclude_set
-                )
-                assistant_properties = list(include_set & properties_set - exclude_set)
+            if include:
+                user_properties = ["input"] + [
+                    item
+                    for item in include
+                    if item in external_keys_list and item not in exclude
+                ]
+                assistant_properties = [
+                    item
+                    for item in include
+                    if item in properties and item not in exclude
+                ]
             else:
-                user_properties = ["input"] + list(external_keys_set - exclude_set)
-                assistant_properties = list(
-                    properties_set - external_keys_set - exclude_set
-                )
+                user_properties = ["input"] + [
+                    item for item in external_keys_list if item not in exclude
+                ]
+                assistant_properties = [
+                    item
+                    for item in properties
+                    if item not in external_keys_list and item not in exclude
+                ]
 
             def format_role(
                 role: str,
@@ -375,21 +373,28 @@ class LLM:
                 prop for prop in metadata["properties"] if prop not in exclude
             ]
 
-            prop_where = (
+            property_filter = (
                 {"$or": [{prop: {"$ne": 0}} for prop in properties]}
                 if len(properties) > 1
                 else {properties[0]: {"$ne": 0}}
             )  # ensure that at least one property from the desired response is present in the example response
+
+            where_filter = {
+                "$and": [
+                    property_filter,
+                    {"base_example": {"$ne": True}},
+                ]
+            }
+
+            if kwargs:
+                where_filter["$and"].append(kwargs)
 
             examples = self.db.query(
                 response,
                 input,
                 n=n_example,
                 max_d=max_d,
-                **kwargs,
-                base_example={"$ne": True},
-                feedback={"$eq": True},
-                **prop_where,
+                where=where_filter,
             )
             messages += format(examples)
 
@@ -417,14 +422,15 @@ class LLM:
 
             messages = messages[:-1]
 
-        if self.cf["prompt_text"]:
-            log_messages = [
-                f'{message["role"]}: {message["content"]}' for message in messages
-            ]
-
-            log.info(
-                f"Chat messages:\n{yaml.dump(log_messages, default_flow_style=False)}"
+        log.info(
+            "Messages:\n"
+            + "".join(
+                [
+                    f'{message["role"][:6]}:\t{message["content"]}\n'
+                    for message in messages
+                ]
             )
+        )
 
         return messages
 
@@ -488,16 +494,16 @@ string ::=
 
         return grammar
 
-    def _get_cache_id(self, response: str, model: str, continuous: bool = True) -> str:
-        moniker = self.get_cache_name(response, model, continuous=continuous)
+    def _get_cache_id(self, response: str, model: str) -> str:
+        moniker = self.get_cache_name(response, model)
 
         if moniker not in self.cache_ids:
             self.cache_ids[moniker] = len(self.cache_ids)
 
         return self.cache_ids[moniker]
 
-    def get_cache_name(self, response: str, model: str, continuous: bool = True) -> str:
-        return f"{response}_{model}_{'continuous' if continuous else 'static'}"
+    def get_cache_name(self, response: str, model: str) -> str:
+        return f"{response}_{model}"
 
     def ask(
         self,
