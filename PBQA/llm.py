@@ -39,14 +39,6 @@ class LLM:
 
         self.cache_ids = {}
 
-        self.db.create_collection("history")
-
-        self.cf = {
-            "llm_response": True,
-            "formatting_settings": True,
-            "prompt_text": True,
-        }
-
     def connect_model(
         self,
         model: str,
@@ -70,10 +62,10 @@ class LLM:
         - min_p (float): The minimum probability to use for generating responses.
         - top_p (float): The top probability to use for generating responses.
         - max_tokens (int): The maximum number of tokens to use for generating responses.
-        - stop (List[str]): The stop words to use for generating responses.
+        - stop (List[str]): Strings to stop the response generation.
 
         Returns:
-        - dict[str, str]: The model properties.
+        - dict[str, str]: The model components.
         """
 
         if not host:
@@ -116,9 +108,10 @@ class LLM:
     def _get_response(
         self,
         input: str,
-        response: str,
+        pattern: str,
         model: str,
         external: dict[str, str] = {},
+        history_name: str = None,
         include: List[str] = [],
         exclude: List[str] = [],
         use_cache: bool = True,
@@ -132,9 +125,9 @@ class LLM:
 
         Parameters:
         - input (str): The input to the LLM.
-        - response (str): The response to generate.
-        - external (dict[str, str]): External properties to include in the response.
-        - exclude (List[str]): Properties to exclude from the response.
+        - pattern (str): The pattern to use for generating the response.
+        - external (dict[str, str]): External components to include in the response.
+        - exclude (List[str]): components to exclude from the response.
         - use_cache (bool): Whether to cache the exchange.
         - n_hist (int): The number of historical examples to load from the database.
         - n_example (int): The number of examples to load from the database.
@@ -148,21 +141,22 @@ class LLM:
         prev = time()
         log.info(f"Generating response from LLM")
 
-        metadata = self.db.get_metadata(response)
+        metadata = self.db.get_metadata(pattern)
 
-        if not_present_properties := [
-            e for e in exclude if e not in metadata["properties"]
+        if not_present_components := [
+            e for e in exclude if e not in metadata["components"]
         ]:
             raise ValueError(
-                f"Properties {not_present_properties} to exclude not found in response {response}"
+                f"components {not_present_components} to exclude not found in pattern {pattern}"
             )
 
         messages = self._format_messages(
             input=input,
             external=external,
-            response=response,
+            pattern=pattern,
             include=include,
             exclude=exclude,
+            history_name=history_name,
             include_base_examples=use_cache,
             n_hist=n_hist,
             n_example=n_example,
@@ -171,7 +165,7 @@ class LLM:
 
         grammar = (
             self._format_master_grammar(
-                response=response,
+                pattern=pattern,
                 exclude=exclude,
             )
             if not grammar
@@ -193,7 +187,7 @@ class LLM:
         data = {
             "model": model,
             "id_slot": self._get_cache_id(
-                response,
+                pattern,
                 model,
             ),
             "cache_prompt": use_cache,
@@ -227,11 +221,12 @@ class LLM:
 
     def _format_messages(
         self,
-        response: str,
+        pattern: str,
         include: List[str] = [],
         exclude: List[str] = [],
         input: str = None,
         external: dict[str, str] = {},
+        history_name: str = None,
         include_base_examples: bool = True,
         system_message: bool = True,
         n_example: int = 0,
@@ -246,11 +241,12 @@ class LLM:
         Format the messages for the LLM.
 
         Parameters:
-        - response (str): The response to generate.
-        - exclude (List[str]): Properties to exclude from the response.
+        - pattern (str): The pattern to use for generating the response.
+        - exclude (List[str]): components to exclude from the response.
         - input (str): The input to the LLM.
-        - include (List[str]): Properties to include in the response.
-        - external (dict[str, str]): External properties to include in the response.
+        - include (List[str]): components to include in the response.
+        - external (dict[str, str]): External components to include in the response.
+        - history_name (str): The name of the history to use for generating the response.
         - include_base_examples (bool): Whether to include the base messages.
         - system_message (bool): Whether to include the system message.
         - n_example (int): The number of examples to load from the database.
@@ -265,13 +261,13 @@ class LLM:
         - list[dict[str, str]]: The formatted messages.
         """
 
-        metadata = self.db.get_metadata(response)
-        properties = metadata["properties"]
+        metadata = self.db.get_metadata(pattern)
+        components = metadata["components"]
         log.info(yaml.dump(metadata, default_flow_style=False))
 
         def format(
             responses: list[dict],
-            properties: List[str] = properties,
+            components: List[str] = components,
             external: dict[str, str] = external,
             include: List[str] = include,
             exclude: List[str] = exclude,
@@ -284,38 +280,38 @@ class LLM:
             external_keys_list = list(external.keys())
 
             if include:
-                user_properties = ["input"] + [
+                user_components = ["input"] + [
                     item
                     for item in include
                     if item in external_keys_list and item not in exclude
                 ]
-                assistant_properties = [
+                assistant_components = [
                     item
                     for item in include
-                    if item in properties and item not in exclude
+                    if item in components and item not in exclude
                 ]
             else:
-                user_properties = ["input"] + [
+                user_components = ["input"] + [
                     item for item in external_keys_list if item not in exclude
                 ]
-                assistant_properties = [
+                assistant_components = [
                     item
-                    for item in properties
+                    for item in components
                     if item not in external_keys_list and item not in exclude
                 ]
 
             def format_role(
                 role: str,
                 response: dict,
-                properties: List[str],
+                components: List[str],
             ) -> dict[str, str]:
-                if len(properties) == 1:
-                    return {"role": role, "content": response[properties[0]]}
+                if len(components) == 1:
+                    return {"role": role, "content": response[components[0]]}
                 else:
                     return {
                         "role": role,
                         "content": json.dumps(
-                            {prop: response[prop] for prop in properties}
+                            {prop: response[prop] for prop in components}
                         ),
                     }
 
@@ -326,7 +322,7 @@ class LLM:
                     format_role(
                         user,
                         response,
-                        user_properties,
+                        user_components,
                     )
                 )
 
@@ -334,7 +330,7 @@ class LLM:
                     format_role(
                         assistant,
                         response,
-                        assistant_properties,
+                        assistant_components,
                     )
                 )
 
@@ -348,9 +344,7 @@ class LLM:
                     (
                         {
                             "role": "system",
-                            "content": metadata[
-                                "system_message"
-                            ],  # TODO: MULT When changing responses to examples, change the system message to go up one level in the hierarchy
+                            "content": metadata["system_message"],
                         }
                     )
                 ]
@@ -358,7 +352,7 @@ class LLM:
             n_base_example = metadata["cache"]["n_example"]
 
             base_examples = self.db.where(
-                collection_name=response,
+                collection_name=pattern,
                 n=n_base_example,
                 base_example={"$eq": True},
             )
@@ -366,19 +360,19 @@ class LLM:
             messages += format(base_examples)
 
         if input:
-            properties = [
-                prop for prop in metadata["properties"] if prop not in exclude
+            components = [
+                prop for prop in metadata["components"] if prop not in exclude
             ]
 
-            property_filter = (
-                {"$or": [{prop: {"$ne": 0}} for prop in properties]}
-                if len(properties) > 1
-                else {properties[0]: {"$ne": 0}}
-            )  # ensure that at least one property from the desired response is present in the example response
+            component_filter = (
+                {"$or": [{prop: {"$ne": 0}} for prop in components]}
+                if len(components) > 1
+                else {components[0]: {"$ne": 0}}
+            )  # ensure that at least one component from the pattern is present in the example response
 
             where_filter = {
                 "$and": [
-                    property_filter,
+                    component_filter,
                     {"base_example": {"$ne": True}},
                 ]
             }
@@ -387,7 +381,7 @@ class LLM:
                 where_filter["$and"].append(kwargs)
 
             examples = self.db.query(
-                response,
+                pattern,
                 input,
                 n=n_example,
                 max_d=max_d,
@@ -396,7 +390,7 @@ class LLM:
             messages += format(examples)
 
             hist = self.db.where(
-                collection_name="history",
+                collection_name=history_name or pattern,
                 start=time() - hist_duration,
                 end=time(),
                 n=n_hist,
@@ -408,7 +402,7 @@ class LLM:
                 **external,
                 **{
                     prop: ""
-                    for prop in properties
+                    for prop in components
                     if prop not in external and prop not in exclude
                 },
             }
@@ -436,24 +430,24 @@ class LLM:
 
     def _format_master_grammar(
         self,
-        response: str,
+        pattern: str,
         exclude: List[str] = [],
     ) -> str:
         """
         Format the master grammar for the LLM.
 
         Parameters:
-        - response (str): The response to generate.
-        - exclude (List[str]): Properties to exclude from the response.
+        - pattern (str): The pattern to use for generating the response.
+        - exclude (List[str]): components to exclude from the pattern.
 
         Returns:
         - str: The formatted master grammar.
         """
 
-        metadata = self.db.get_metadata(response)
+        metadata = self.db.get_metadata(pattern)
 
         grammars = {}
-        for prop in metadata["properties"]:
+        for prop in metadata["components"]:
             if prop in exclude or (prop in metadata and "external" in metadata[prop]):
                 continue
             if prop not in metadata:
@@ -494,23 +488,24 @@ string ::=
 
         return grammar
 
-    def _get_cache_id(self, response: str, model: str) -> str:
-        moniker = self.get_cache_name(response, model)
+    def _get_cache_id(self, pattern: str, model: str) -> str:
+        moniker = self.get_cache_name(pattern, model)
 
         if moniker not in self.cache_ids:
             self.cache_ids[moniker] = len(self.cache_ids)
 
         return self.cache_ids[moniker]
 
-    def get_cache_name(self, response: str, model: str) -> str:
-        return f"{response}_{model}"
+    def get_cache_name(self, pattern: str, model: str) -> str:
+        return f"{pattern}_{model}"
 
     def ask(
         self,
         input: str,
-        response: str,
+        pattern: str,
         model: str,
         external: dict[str, str] = {},
+        history_name: str = None,
         include: List[str] = [],
         exclude: List[str] = [],
         n_hist: int = 0,
@@ -524,11 +519,12 @@ string ::=
 
         Parameters:
         - input (str): The input to the LLM.
-        - response (str): The response to generate.
+        - pattern (str): The pattern to use for generating the response.
         - model (str): The model to use for generating the response.
-        - external (dict[str, str]): External properties to include in the response.
-        - include (List[str]): Properties to include in the response.
-        - exclude (List[str]): Properties to exclude from the response.
+        - external (dict[str, str]): External components to include in the response.
+        - history_name (str): The name of the history to use for generating the response.
+        - include (List[str]): components to include in the response.
+        - exclude (List[str]): components to exclude from the response.
         - n_hist (int): The number of historical examples to load from the database.
         - n_example (int): The number of examples to load from the database.
         - cache (bool): Whether to cache the exchange.
@@ -539,24 +535,25 @@ string ::=
         - Union[str, dict]: The response from the LLM.
         """
 
-        metadata = self.db.get_metadata(response)
+        metadata = self.db.get_metadata(pattern)
 
-        external_properties = [
+        external_components = [
             prop
-            for prop in metadata["properties"]
+            for prop in metadata["components"]
             if prop in metadata and "external" in metadata[prop] and prop not in exclude
         ]
-        if not set(external_properties).issubset(set(external.keys())):
+        if not set(external_components).issubset(set(external.keys())):
             raise ValueError(
-                f"External properties {external_properties} not found in external properties {external}. Make sure to all external properties are provided, e.g. external={{'location': 'Amsterdam'}}."
+                f"External components {external_components} not found in external components {external}. Make sure to all external components are provided, e.g. external={{'location': 'Amsterdam'}}."
             )
 
         output = self._get_response(
             input=input,
-            response=response,
+            pattern=pattern,
             model=model,
             include=include,
             external=external,
+            history_name=history_name,
             exclude=exclude,
             n_hist=n_hist,
             n_example=n_example,
@@ -567,7 +564,7 @@ string ::=
 
         answer = output["choices"][0]["message"]["content"]
 
-        if len(set(metadata["properties"]) - set(exclude) - set(external.keys())) == 1:
+        if len(set(metadata["components"]) - set(exclude) - set(external.keys())) == 1:
             return answer
         else:
             try:

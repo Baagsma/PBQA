@@ -55,9 +55,9 @@ class DB:
                 ),
             )
 
-        self.response_properties = {}
+        self.pattern_components = {}
 
-    def load_responses(self, path: str):
+    def load_patterns(self, path: str):
         if file_extension(path) not in ["yaml", "json"]:
             raise ValueError(
                 "Invalid file type. Only .yaml and .json files are supported."
@@ -67,7 +67,7 @@ class DB:
         if collection_name not in self.get_collections():
             self._add_from_file(path)
 
-        self.response_properties[collection_name] = self._get_properties(path)
+        self.pattern_components[collection_name] = self._get_components(path)
 
     def _add_from_file(
         self,
@@ -81,7 +81,7 @@ class DB:
 
         The file should contain a dictionary with at least a `data` key, which contains a list of dictionaries. Each dictionary in the `data` list represents a document, and should contain a `input` key with the document's input. Additional keys in the dictionary are treated as metadata for the document.
 
-        Optionally, the file can contain an `open_properties` key, which contains a list of metadata properties that should be treated as open properties. Open properties are not added to the property options list, and are not used in metadata filtering queries.
+        Optionally, the file can contain an `open_components` key, which contains a list of metadata components that should be treated as open components. Open components are not added to the component options list, and are not used in metadata filtering queries.
 
         Parameters:
         - path (str): The path to the file to read.
@@ -109,7 +109,7 @@ class DB:
 
         if "examples" not in data:
             raise ValueError(
-                f"File {path} does not contain any examples. Even if never used, at least one example is required to determine the collection properties."
+                f"File {path} does not contain any examples. Even if never used, at least one example is required to determine the collection components."
             )
 
         for item in data["examples"]:
@@ -185,7 +185,7 @@ class DB:
 
         This method adds a document to a collection. The document should contain an `input` key with the document's input. Additional keys in the dictionary are treated as metadata for the document.
 
-        Optionally, the document can contain an `open_properties` key, which contains a list of metadata properties that should be treated as open properties. The options for open properties are not added to the property options list, and are not used in metadata filtering queries.
+        Optionally, the document can contain an `open_components` key, which contains a list of metadata components that should be treated as open components. The options for open components are not added to the component options list, and are not used in metadata filtering queries.
 
         Parameters:
         - collection_name (str): The name of the collection to add the document to.
@@ -232,54 +232,54 @@ class DB:
 
         return {"input": input, "id": doc_id, **kwargs}
 
-    def _get_properties(
+    def _get_components(
         self,
         path: str,
         exclude: list = [],
     ) -> List[str]:
         """
-        Get the properties from a file.
+        Get the components from a file.
 
-        This method reads a file and retrieves the properties it contains. The file can be in either JSON or YAML format.
+        This method reads a file and retrieves the components it contains. The file can be in either JSON or YAML format.
 
         Parameters:
         - path (str): The path to the file to read.
-        - exclude (list, optional): A list of properties to exclude from the result. Defaults to an empty list.
+        - exclude (list, optional): A list of components to exclude from the result. Defaults to an empty list.
 
         Returns:
-        - List[str]: A list of properties from the file.
+        - List[str]: A list of components from the file.
         """
 
         data = self.load_from_file(path)
-        exclude.append("input")  # Exclude "input" property by default
+        exclude.append("input")  # Exclude "input" component by default
 
-        properties = []
-        for property in data["examples"][0]:
-            if property not in properties and property not in exclude:
-                properties.append(property)
+        components = []
+        for component in data["examples"][0]:
+            if component not in components and component not in exclude:
+                components.append(component)
 
-        log.info(f"Retrieved {len(properties)} properties from {path}")
-        return properties
+        log.info(f"Retrieved {len(components)} components from {path}")
+        return components
 
-    def get_properties(self, collection_name: str) -> List[str]:
+    def get_components(self, collection_name: str) -> List[str]:
         """
-        Get the properties in a collection.
+        Get the components in a collection.
 
-        This method retrieves the properties for a collection.
+        This method retrieves the components for a collection.
 
         Parameters:
         - collection_name (str): The name of the collection to query.
 
         Returns:
-        - List[str]: A list of properties of the given collection.
+        - List[str]: A list of components of the given collection.
         """
 
-        if collection_name not in self.response_properties:
+        if collection_name not in self.pattern_components:
             raise ValueError(
                 f"Collection {collection_name} not found in {self.get_collections()}"
             )
 
-        return self.response_properties[collection_name]
+        return self.pattern_components[collection_name]
 
     def get_metadata(
         self,
@@ -307,7 +307,7 @@ class DB:
             ),
         )[0][0].payload
 
-        metadata["properties"] = self.get_properties(collection_name)
+        metadata["components"] = self.get_components(collection_name)
 
         return metadata
 
