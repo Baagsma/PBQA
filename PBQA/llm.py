@@ -39,8 +39,6 @@ class LLM:
 
         self.cache_ids = {}
 
-        self.db.create_collection("history")
-
         self.cf = {
             "llm_response": True,
             "formatting_settings": True,
@@ -119,6 +117,7 @@ class LLM:
         response: str,
         model: str,
         external: dict[str, str] = {},
+        history_name: str = None,
         include: List[str] = [],
         exclude: List[str] = [],
         use_cache: bool = True,
@@ -163,6 +162,7 @@ class LLM:
             response=response,
             include=include,
             exclude=exclude,
+            history_name=history_name,
             include_base_examples=use_cache,
             n_hist=n_hist,
             n_example=n_example,
@@ -232,6 +232,7 @@ class LLM:
         exclude: List[str] = [],
         input: str = None,
         external: dict[str, str] = {},
+        history_name: str = None,
         include_base_examples: bool = True,
         system_message: bool = True,
         n_example: int = 0,
@@ -393,8 +394,10 @@ class LLM:
             )
             messages += format(examples)
 
+            history_name = history_name or response
+
             hist = self.db.where(
-                collection_name="history",
+                collection_name=history_name,
                 start=time() - hist_duration,
                 end=time(),
                 n=n_hist,
@@ -509,6 +512,7 @@ string ::=
         response: str,
         model: str,
         external: dict[str, str] = {},
+        history_name: str = None,
         include: List[str] = [],
         exclude: List[str] = [],
         n_hist: int = 0,
@@ -525,6 +529,7 @@ string ::=
         - response (str): The response to generate.
         - model (str): The model to use for generating the response.
         - external (dict[str, str]): External properties to include in the response.
+        - history_name (str): The name of the history to use for generating the response.
         - include (List[str]): Properties to include in the response.
         - exclude (List[str]): Properties to exclude from the response.
         - n_hist (int): The number of historical examples to load from the database.
@@ -555,6 +560,7 @@ string ::=
             model=model,
             include=include,
             external=external,
+            history_name=history_name,
             exclude=exclude,
             n_hist=n_hist,
             n_example=n_example,
