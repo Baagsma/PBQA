@@ -252,6 +252,7 @@ class LLM:
         - input (str): The input to the LLM.
         - include (List[str]): Properties to include in the response.
         - external (dict[str, str]): External properties to include in the response.
+        - history_name (str): The name of the history to use for generating the response.
         - include_base_examples (bool): Whether to include the base messages.
         - system_message (bool): Whether to include the system message.
         - n_example (int): The number of examples to load from the database.
