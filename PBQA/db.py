@@ -55,7 +55,6 @@ class DB:
                 ),
             )
 
-        # TODO: Rename patterns to patterns and components to components
         self.pattern_components = {}
 
     def load_patterns(self, path: str):
