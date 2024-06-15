@@ -77,7 +77,7 @@ class LLM:
             log.info(f"Connected to model {model} at {host}:{port}")
         else:
             raise ValueError(
-                f"Failed to connect to LLM server at {host}:{port}. Ensure the server is running."
+                f"Failed to connect to LLM server at {host}:{port}. Ensure the server is running and the host and port are correct."
             )
 
         self.models[model] = {
