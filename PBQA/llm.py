@@ -114,11 +114,12 @@ class LLM:
         history_name: str = None,
         system_prompt: str = None,
         include_system_prompt: bool = True,
+        include_base_examples: bool = True,
         include: List[str] = [],
         exclude: List[str] = [],
-        use_cache: bool = True,
         n_hist: int = 0,
         n_example: int = 0,
+        use_cache: bool = True,
         grammar: str = None,
         **kwargs,
     ) -> json:
@@ -128,16 +129,22 @@ class LLM:
         Parameters:
         - input (str): The input to the LLM.
         - pattern (str): The pattern to use for generating the response.
-        - external (dict[str, str]): External components to include in the response.
+        - model (str): The model to use for generating the response.
+        - external (dict[str, str]): External data to include in the response.
+        - history_name (str): The name of the history to use for generating the response.
+        - system_prompt (str): The system prompt to provide to the LLM.
+        - include_system_prompt (bool): Whether to include the system message.
+        - include_base_examples (bool): Whether to include the base examples.
+        - include (List[str]): components to include in the response.
         - exclude (List[str]): components to exclude from the response.
-        - use_cache (bool): Whether to cache the exchange.
         - n_hist (int): The number of historical examples to load from the database.
         - n_example (int): The number of examples to load from the database.
+        - use_cache (bool): Whether to use the cache for the response.
         - grammar (str): The grammar to use for the response.
         - kwargs: Additional arguments to pass when querying the database.
 
         Returns:
-        - json: The response from the LLM server.
+        - json: The response from the LLM.
         """
 
         prev = time()
@@ -159,7 +166,7 @@ class LLM:
             include=include,
             exclude=exclude,
             history_name=history_name,
-            include_base_examples=use_cache,
+            include_base_examples=include_base_examples,
             system_prompt=system_prompt,
             include_system_prompt=include_system_prompt,
             n_hist=n_hist,
@@ -216,7 +223,7 @@ class LLM:
 
         llm_response = llm_response.json()
 
-        log.info(f"response:\n{yaml.dump(llm_response, default_flow_style=False)}")
+        log.info(f"Response:\n{yaml.dump(llm_response, default_flow_style=False)}")
 
         log.info(
             f"Generated response in {time() - prev:.3f} s ({llm_response['usage']['completion_tokens']/(time() - prev):.1f} t/s)"
@@ -518,11 +525,12 @@ string ::=
         history_name: str = None,
         system_prompt: str = None,
         include_system_prompt: bool = True,
+        include_base_examples: bool = True,
         include: List[str] = [],
         exclude: List[str] = [],
         n_hist: int = 0,
         n_example: int = 0,
-        cache: bool = True,
+        use_cache: bool = True,
         grammar: str = None,
         **kwargs,
     ) -> Union[str, dict]:
@@ -533,15 +541,16 @@ string ::=
         - input (str): The input to the LLM.
         - pattern (str): The pattern to use for generating the response.
         - model (str): The model to use for generating the response.
-        - external (dict[str, str]): External components to include in the response.
+        - external (dict[str, str]): External data to include in the response.
         - history_name (str): The name of the history to use for generating the response.
         - system_prompt (str): The system prompt to provide to the LLM.
         - include_system_prompt (bool): Whether to include the system message.
+        - include_base_examples (bool): Whether to include the base examples.
         - include (List[str]): components to include in the response.
         - exclude (List[str]): components to exclude from the response.
         - n_hist (int): The number of historical examples to load from the database.
         - n_example (int): The number of examples to load from the database.
-        - cache (bool): Whether to cache the exchange.
+        - use_cache (bool): Whether to use the cache for the response.
         - grammar (str): The grammar to use for the response.
         - kwargs: Additional arguments to pass when querying the database.
 
@@ -572,10 +581,11 @@ string ::=
             history_name=history_name,
             system_prompt=system_prompt,
             include_system_prompt=include_system_prompt,
+            include_base_examples=include_base_examples,
             exclude=exclude,
             n_hist=n_hist,
             n_example=n_example,
-            use_cache=cache,
+            use_cache=use_cache,
             grammar=grammar,
             **kwargs,
         )
