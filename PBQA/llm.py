@@ -458,7 +458,7 @@ class LLM:
             else:
                 grammars[prop] = metadata[prop]["grammar"]
 
-        if len(grammars) == 0:
+        if len(grammars) == 0:asd
             return None
 
         if len(grammars) == 1:
