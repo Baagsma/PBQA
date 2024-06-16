@@ -421,12 +421,6 @@ class LLM:
 
         messages += format(hist)
 
-        log.warn(
-            "\n".join(
-                [f"{message['role']}: {message['content']}" for message in messages]
-            )
-        )
-
         messages = messages[:-1]  # The format method adds a vestigial assistant message
 
         log.info(f"Examples: {len(examples)}/{n_example}")
