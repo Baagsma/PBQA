@@ -112,6 +112,8 @@ class LLM:
         model: str,
         external: dict[str, str] = {},
         history_name: str = None,
+        system_prompt: str = None,
+        include_system_prompt: bool = True,
         include: List[str] = [],
         exclude: List[str] = [],
         use_cache: bool = True,
@@ -158,6 +160,8 @@ class LLM:
             exclude=exclude,
             history_name=history_name,
             include_base_examples=use_cache,
+            system_prompt=system_prompt,
+            include_system_prompt=include_system_prompt,
             n_hist=n_hist,
             n_example=n_example,
             **kwargs,
@@ -228,7 +232,8 @@ class LLM:
         external: dict[str, str] = {},
         history_name: str = None,
         include_base_examples: bool = True,
-        system_message: bool = True,
+        system_prompt: str = None,
+        include_system_prompt: bool = True,
         n_example: int = 0,
         n_hist: int = 0,
         hist_duration: int = DEFAULT_HIST_DURATION,
@@ -248,7 +253,8 @@ class LLM:
         - external (dict[str, str]): External components to include in the response.
         - history_name (str): The name of the history to use for generating the response.
         - include_base_examples (bool): Whether to include the base messages.
-        - system_message (bool): Whether to include the system message.
+        - system_prompt (str): The system prompt to provide to the LLM.
+        - include_system_prompt (bool): Whether to include the system message.
         - n_example (int): The number of examples to load from the database.
         - n_hist (int): The number of historical examples to load from the database.
         - hist_duration (int): The duration of the historical examples to load.
@@ -280,25 +286,18 @@ class LLM:
             external_keys_list = list(external.keys())
 
             if include:
-                user_components = ["input"] + [
-                    item
-                    for item in include
-                    if item in external_keys_list and item not in exclude
-                ]
-                assistant_components = [
-                    item
-                    for item in include
-                    if item in components and item not in exclude
-                ]
-            else:
-                user_components = ["input"] + [
-                    item for item in external_keys_list if item not in exclude
-                ]
-                assistant_components = [
-                    item
-                    for item in components
-                    if item not in external_keys_list and item not in exclude
-                ]
+                components = [item for item in components if item in include]
+
+            user_components = ["input"] + [
+                item
+                for item in components
+                if item in external_keys_list and item not in exclude
+            ]
+            assistant_components = [
+                item
+                for item in components
+                if item not in external_keys_list and item not in exclude
+            ]
 
             def format_role(
                 role: str,
@@ -311,7 +310,7 @@ class LLM:
                     return {
                         "role": role,
                         "content": json.dumps(
-                            {prop: response[prop] for prop in components}
+                            {comp: response[comp] for comp in components}
                         ),
                     }
 
@@ -338,18 +337,20 @@ class LLM:
 
         messages = []
 
-        if include_base_examples:
-            if system_message and "system_message" in metadata.keys():
-                messages += [
-                    (
-                        {
-                            "role": "system",
-                            "content": metadata["system_message"],
-                        }
-                    )
-                ]
+        if include_system_prompt and (
+            "system_prompt" in metadata.keys() or system_prompt
+        ):
+            messages += [
+                (
+                    {
+                        "role": "system",
+                        "content": system_prompt or metadata["system_prompt"],
+                    }
+                )
+            ]
 
-            n_base_example = metadata["cache"]["n_example"]
+        if include_base_examples:
+            n_base_example = 50
 
             base_examples = self.db.where(
                 collection_name=pattern,
@@ -361,11 +362,11 @@ class LLM:
 
         if input:
             components = [
-                prop for prop in metadata["components"] if prop not in exclude
+                comp for comp in metadata["components"] if comp not in exclude
             ]
 
             component_filter = (
-                {"$or": [{prop: {"$ne": 0}} for prop in components]}
+                {"$or": [{comp: {"$ne": 0}} for comp in components]}
                 if len(components) > 1
                 else {components[0]: {"$ne": 0}}
             )  # ensure that at least one component from the pattern is present in the example response
@@ -389,6 +390,8 @@ class LLM:
             )
             messages += format(examples)
 
+        hist = []
+        if n_hist:
             hist = self.db.where(
                 collection_name=history_name or pattern,
                 start=time() - hist_duration,
@@ -397,21 +400,27 @@ class LLM:
                 base_example={"$ne": True},
             )  # TODO: If len(hist) == n_hist, remove n oldest responses
 
-            input_response = {
-                "input": input,
-                **external,
-                **{
-                    prop: ""
-                    for prop in components
-                    if prop not in external and prop not in exclude
-                },
-            }
+        input_response = {
+            "input": input,
+            **external,
+            **{
+                comp: ""
+                for comp in components
+                if comp not in external and comp not in exclude
+            },
+        }
 
-            hist.append(input_response)
+        hist.append(input_response)
 
-            messages += format(hist)
+        messages += format(hist)
 
-            messages = messages[:-1]
+        log.warn(
+            "\n".join(
+                [f"{message['role']}: {message['content']}" for message in messages]
+            )
+        )
+
+        messages = messages[:-1]  # The format method adds a vestigial assistant message
 
         log.info(f"Examples: {len(examples)}/{n_example}")
         log.info(f"History: {len(hist) - 1}/{n_hist}")
@@ -447,16 +456,20 @@ class LLM:
         metadata = self.db.get_metadata(pattern)
 
         grammars = {}
-        for prop in metadata["components"]:
-            if prop in exclude or (prop in metadata and "external" in metadata[prop]):
+        for comp in metadata["components"]:
+            if comp in exclude or (
+                comp in metadata
+                and metadata[comp]
+                and metadata[comp].get("external", False)
+            ):
                 continue
-            if prop not in metadata:
-                grammars[prop] = None
+            if comp not in metadata or not metadata[comp]:
+                grammars[comp] = None
                 continue
-            if "grammar" not in metadata[prop]:
-                grammars[prop] = None
+            if "grammar" not in metadata[comp]:
+                grammars[comp] = None
             else:
-                grammars[prop] = metadata[prop]["grammar"]
+                grammars[comp] = metadata[comp]["grammar"]
 
         if len(grammars) == 0:
             return None
@@ -466,8 +479,8 @@ class LLM:
 
         grammar = 'root ::= "{"'
 
-        for prop, value in grammars.items():
-            grammar += f' "\\"{prop}\\": " {prop + "-gram" if value else "string"} ", "'
+        for comp, value in grammars.items():
+            grammar += f' "\\"{comp}\\": " {comp + "-gram" if value else "string"} ", "'
 
         grammar = grammar[:-3]  # Remove the trailing comma and space
 
@@ -481,10 +494,10 @@ string ::=
 
 """
 
-        for prop in grammars:
-            if not grammars[prop]:
+        for comp in grammars:
+            if not grammars[comp]:
                 continue
-            grammar += f"{prop + '-gram'}" + grammars[prop].split("root")[1] + "\n\n"
+            grammar += f"{comp + '-gram'}" + grammars[comp].split("root")[1] + "\n\n"
 
         return grammar
 
@@ -506,6 +519,8 @@ string ::=
         model: str,
         external: dict[str, str] = {},
         history_name: str = None,
+        system_prompt: str = None,
+        include_system_prompt: bool = True,
         include: List[str] = [],
         exclude: List[str] = [],
         n_hist: int = 0,
@@ -523,6 +538,8 @@ string ::=
         - model (str): The model to use for generating the response.
         - external (dict[str, str]): External components to include in the response.
         - history_name (str): The name of the history to use for generating the response.
+        - system_prompt (str): The system prompt to provide to the LLM.
+        - include_system_prompt (bool): Whether to include the system message.
         - include (List[str]): components to include in the response.
         - exclude (List[str]): components to exclude from the response.
         - n_hist (int): The number of historical examples to load from the database.
@@ -538,9 +555,11 @@ string ::=
         metadata = self.db.get_metadata(pattern)
 
         external_components = [
-            prop
-            for prop in metadata["components"]
-            if prop in metadata and "external" in metadata[prop] and prop not in exclude
+            comp
+            for comp in metadata["components"]
+            if metadata[comp]
+            and comp not in exclude
+            and metadata[comp].get("external", False)
         ]
         if not set(external_components).issubset(set(external.keys())):
             raise ValueError(
@@ -554,6 +573,8 @@ string ::=
             include=include,
             external=external,
             history_name=history_name,
+            system_prompt=system_prompt,
+            include_system_prompt=include_system_prompt,
             exclude=exclude,
             n_hist=n_hist,
             n_example=n_example,

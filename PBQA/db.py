@@ -67,8 +67,6 @@ class DB:
         if collection_name not in self.get_collections():
             self._add_from_file(path)
 
-        self.pattern_components[collection_name] = self._get_components(path)
-
     def _add_from_file(
         self,
         path: str,
@@ -80,8 +78,6 @@ class DB:
         This method reads a file and adds the documents it contains to a collection. The file can be in either JSON or YAML format. The collection name is inferred from the file name, but can be overridden by passing a `collection_name` parameter.
 
         The file should contain a dictionary with at least a `data` key, which contains a list of dictionaries. Each dictionary in the `data` list represents a document, and should contain a `input` key with the document's input. Additional keys in the dictionary are treated as metadata for the document.
-
-        Optionally, the file can contain an `open_components` key, which contains a list of metadata components that should be treated as open components. Open components are not added to the component options list, and are not used in metadata filtering queries.
 
         Parameters:
         - path (str): The path to the file to read.
@@ -95,11 +91,13 @@ class DB:
         log.info(f"Populating collection {collection_name} with {path}")
 
         data = self.load_from_file(path)
-        metadata = (
-            {k: v for k, v in data.items() if k != "examples"}
-            if "examples" in data
-            else {}
-        )
+
+        metadata = {k: v for k, v in data.items() if k != "examples"}
+        log.warn(f"Metadata: {metadata}")
+        if "system_prompt" not in metadata:
+            log.warn(
+                f"Pattern {collection_name} does not contain a system_prompt. This may lead to unexpected behavior. May alternatively be passed when calling the LLM."
+            )
 
         self.create_collection(
             collection_name=collection_name,
@@ -107,19 +105,17 @@ class DB:
             **kwargs,
         )
 
-        if "examples" not in data:
-            raise ValueError(
-                f"File {path} does not contain any examples. Even if never used, at least one example is required to determine the collection components."
-            )
+        if "examples" in data:
+            for item in data["examples"]:
+                self.add(
+                    **item,
+                    collection_name=collection_name,
+                    base_example=True,
+                )
 
-        for item in data["examples"]:
-            self.add(
-                **item,
-                collection_name=collection_name,
-                base_example=True,
+            log.info(
+                f"Added {len(data['examples'])} documents in {(time() - prev):.1f} s"
             )
-
-        log.info(f"Added {len(data['examples'])} documents in {(time() - prev):.1f} s")
 
         return collection_name
 
@@ -152,16 +148,17 @@ class DB:
                 distance=models.Distance.COSINE,
             )
 
+            metadata["components"] = [
+                key for key in metadata.keys() if key != "system_prompt"
+            ]
+            metadata["collection_name"] = collection_name
             self.client.upsert(
                 collection_name="metadata",
                 points=[
                     models.PointStruct(
                         id=str(uuid.uuid4()),
                         vector=[0],
-                        payload={
-                            "collection_name": collection_name,
-                            **metadata,
-                        },
+                        payload=metadata,
                     )
                 ],
             )
@@ -184,8 +181,6 @@ class DB:
         Add a document to a collection.
 
         This method adds a document to a collection. The document should contain an `input` key with the document's input. Additional keys in the dictionary are treated as metadata for the document.
-
-        Optionally, the document can contain an `open_components` key, which contains a list of metadata components that should be treated as open components. The options for open components are not added to the component options list, and are not used in metadata filtering queries.
 
         Parameters:
         - collection_name (str): The name of the collection to add the document to.
@@ -232,55 +227,6 @@ class DB:
 
         return {"input": input, "id": doc_id, **kwargs}
 
-    def _get_components(
-        self,
-        path: str,
-        exclude: list = [],
-    ) -> List[str]:
-        """
-        Get the components from a file.
-
-        This method reads a file and retrieves the components it contains. The file can be in either JSON or YAML format.
-
-        Parameters:
-        - path (str): The path to the file to read.
-        - exclude (list, optional): A list of components to exclude from the result. Defaults to an empty list.
-
-        Returns:
-        - List[str]: A list of components from the file.
-        """
-
-        data = self.load_from_file(path)
-        exclude.append("input")  # Exclude "input" component by default
-
-        components = []
-        for component in data["examples"][0]:
-            if component not in components and component not in exclude:
-                components.append(component)
-
-        log.info(f"Retrieved {len(components)} components from {path}")
-        return components
-
-    def get_components(self, collection_name: str) -> List[str]:
-        """
-        Get the components in a collection.
-
-        This method retrieves the components for a collection.
-
-        Parameters:
-        - collection_name (str): The name of the collection to query.
-
-        Returns:
-        - List[str]: A list of components of the given collection.
-        """
-
-        if collection_name not in self.pattern_components:
-            raise ValueError(
-                f"Collection {collection_name} not found in {self.get_collections()}"
-            )
-
-        return self.pattern_components[collection_name]
-
     def get_metadata(
         self,
         collection_name: str,
@@ -306,8 +252,6 @@ class DB:
                 {"collection_name": collection_name}
             ),
         )[0][0].payload
-
-        metadata["components"] = self.get_components(collection_name)
 
         return metadata
 
