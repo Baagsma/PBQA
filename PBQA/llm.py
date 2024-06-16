@@ -376,7 +376,7 @@ class LLM:
                 {"$or": [{comp: {"$ne": 0}} for comp in components]}
                 if len(components) > 1
                 else {components[0]: {"$ne": 0}}
-            )  # ensure that at least one component from the pattern is present in the example response
+            )  # Ensure that at least one component from the pattern is present in the example response
 
             where_filter = {
                 "$and": [
