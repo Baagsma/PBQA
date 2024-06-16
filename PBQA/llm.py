@@ -463,10 +463,7 @@ class LLM:
                 and metadata[comp].get("external", False)
             ):
                 continue
-            if comp not in metadata or not metadata[comp]:
-                grammars[comp] = None
-                continue
-            if "grammar" not in metadata[comp]:
+            if not metadata[comp] or "grammar" not in metadata[comp]:
                 grammars[comp] = None
             else:
                 grammars[comp] = metadata[comp]["grammar"]
