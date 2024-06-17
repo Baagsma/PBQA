@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 setup(
     name="PBQA",
     version="0.1.0",
-    description="Pattern Based Question and Answer",
+    description="Pattern Based Question and Answer (PBQA) is a Python library that provides tools for querying LLMs and managing text embeddings. It combines guided generation with multi-shot prompting to improve response quality and consistency.",
     author="Bart Haagsma",
     author_email="dev.baagsma@gmail.com",
     packages=find_packages(),
