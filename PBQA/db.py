@@ -57,7 +57,7 @@ class DB:
 
         self.pattern_components = {}
 
-    def load_patterns(self, path: str):
+    def load_pattern(self, path: str):
         if file_extension(path) not in ["yaml", "json"]:
             raise ValueError(
                 "Invalid file type. Only .yaml and .json files are supported."

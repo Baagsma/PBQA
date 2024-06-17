@@ -24,7 +24,7 @@ from PBQA import DB, LLM
 from time import strftime
 
 db = DB(path="test/db")
-db.load_patterns("test/weather.yaml")
+db.load_pattern("test/weather.yaml")
 
 llm = LLM(db=db, host="192.168.0.1")
 llm.connect_model(
