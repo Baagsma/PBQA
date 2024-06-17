@@ -56,7 +56,7 @@ For more examples, see the [examples](examples) directory.
 ## Roadmap
 Future features in no particular order with no particular timeline:
     
- - Option to use own Qdrant server
+ - Option to use self-hosted Qdrant server
  - Support for more LLM backends
  - Parallel query execution
 
