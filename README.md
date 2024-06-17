@@ -2,10 +2,10 @@
 ## About
 Pattern Based Question and Answer (PBQA) is a Python library that provides tools for querying LLMs and managing text embeddings. It combines guided generation with multi-shot prompting to improve response quality and consistency.
 
-    * [Installation](#installation)
-    * [Getting Started](#getting-started)
-    * [Roadmap](#roadmap)
-    * [License](#license)
+ - [Installation](#installation)
+ - [Getting Started](#getting-started)
+ - [Roadmap](#roadmap)
+ - [License](#license-and-acknowledgements)
 
 ## Installation
 To install the PBQA library, you can clone the repository and install the requirements:
@@ -42,7 +42,7 @@ weather_query = llm.ask(
     )
 ```
 
-Given the [weather.yaml](example/weather.yaml) pattern file and [llama3](https://huggingface.co/QuantFactory/Meta-Llama-3-8B-Instruct-GGUF) running on 192.168.0.1:8080, `weather_query` should look something like this:
+Given the [weather.yaml](examples/weather.yaml) pattern file and [llama3](https://huggingface.co/QuantFactory/Meta-Llama-3-8B-Instruct-GGUF) running on 192.168.0.1:8080, `weather_query` should look something like this:
 
 ```json
 {
@@ -51,7 +51,15 @@ Given the [weather.yaml](example/weather.yaml) pattern file and [llama3](https:/
     'time': '2024-06-18 01:00'
 }
 ```
+
+For more examples, see the [examples](examples) directory.
+
 ## Roadmap
+Future features in no particular order with no particular timeline:
+    
+ - Option to use own Qdrant server
+ - Support for more LLM backends
+ - Parallel query execution
 
 ## License and Acknowledgements
 This project is licensed under the terms of the MIT License. For more details, see the LICENSE file.
