@@ -23,8 +23,8 @@ First, a database is set up into which your patterns can be loaded. These patter
 from PBQA import DB, LLM
 from time import strftime
 
-db = DB(path="test/db")
-db.load_pattern("test/weather.yaml")
+db = DB(path="examples/db")
+db.load_pattern("examples/weather.yaml")
 
 llm = LLM(db=db, host="192.168.0.1")
 llm.connect_model(
