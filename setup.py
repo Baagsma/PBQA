@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="PBQA",
-    version="0.1",
+    version="0.1.0",
     description="Pattern Based Question and Answer",
     author="Bart Haagsma",
     author_email="dev.baagsma@gmail.com",
@@ -12,7 +12,6 @@ setup(
         "requests",
         "qdrant-client",
         "sentence-transformers",
-        "python-dateutil",
     ],
     classifiers=[
         "Development Status :: 3 - Alpha",

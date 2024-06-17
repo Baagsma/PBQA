@@ -2,4 +2,3 @@ PyYAML
 requests
 qdrant-client
 sentence-transformers
-python-dateutil
