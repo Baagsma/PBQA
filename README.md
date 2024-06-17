@@ -13,7 +13,8 @@ To install the PBQA library, you can clone the repository and install the requir
 
 ```sh
 git clone https://github.com/Baagsma/PBQA.git
-pip install -r requirements.txt
+python setup.py sdist
+pip install dist/PBQA-0.1.0.tar.gz
 ```
 
 ## Getting Started
