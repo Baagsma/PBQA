@@ -30,7 +30,7 @@ llm = LLM(db=db, host="192.168.0.1")
 llm.connect_model(
     model="llama",
     port=8080,
-    stop=["<|end|>"],
+    stop=["<|eot_id|>", "<|start_header_id|>"],
     temperature=0,
 )
 
