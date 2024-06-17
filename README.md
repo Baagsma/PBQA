@@ -11,7 +11,7 @@ Pattern Based Question and Answer (PBQA) is a Python library that provides tools
 To install the PBQA library, you can clone the repository and install the requirements:
 
 ```sh
-git clone https://github.com/yourusername/PBQA.git
+git clone https://github.com/Baagsma/PBQA.git
 cd PBQA
 pip install -r requirements.txt
 ```
