@@ -12,7 +12,6 @@ setup(
         "requests",
         "qdrant-client",
         "sentence-transformers",
-        "python-dateutil",
     ],
     classifiers=[
         "Development Status :: 3 - Alpha",
