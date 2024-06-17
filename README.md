@@ -12,7 +12,6 @@ To install the PBQA library, you can clone the repository and install the requir
 
 ```sh
 git clone https://github.com/Baagsma/PBQA.git
-cd PBQA
 pip install -r requirements.txt
 ```
 
@@ -46,9 +45,9 @@ Given the [weather.yaml](examples/weather.yaml) pattern file and [llama3](https:
 
 ```json
 {
-    'latitude': 51.51,
-    'longitude': 0.13,
-    'time': '2024-06-18 01:00'
+    "latitude": 51.51,
+    "longitude": 0.13,
+    "time": "2024-06-18 01:00",
 }
 ```
 
