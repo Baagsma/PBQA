@@ -1,9 +1,15 @@
 from setuptools import setup, find_packages
+from pathlib import Path
+
+HERE = Path(__file__).parent
+README = (HERE / "README.md").read_text()
 
 setup(
     name="PBQA",
-    version="0.1.1",
+    version="0.1.2",
     description="Pattern Based Question and Answer (PBQA) is a Python library that provides tools for querying LLMs and managing text embeddings. It combines guided generation with multi-shot prompting to improve response quality and consistency.",
+    long_description=README,
+    long_description_content_type="text/markdown",
     author="Bart Haagsma",
     author_email="dev.baagsma@gmail.com",
     packages=find_packages(),
