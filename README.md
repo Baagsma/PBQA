@@ -67,9 +67,9 @@ For more examples, see the [examples](examples) directory.
 Pattern files are used to guide the LLM in generating responses. They are written in YAML and consist of three parts: the system prompt, component metadata, and examples.
 
 ```yaml
+# The system prompt is the main instruction given to the LLM telling it what to do
 system_prompt: Your job is to translate the user's input into a weather query. Reply with the json for the weather query and nothing else.
-# Each component needs to have it's own key, "component:" at minimum
-now:  
+now:  # Each component of the response needs to have it's own key, "component:" at minimum
   external: true  # Optionally, specify whether the component requires external data
 latitude:
   grammar: |  # Or define a GBNF grammar
@@ -81,8 +81,7 @@ longitude:
   grammar: ...
 time:
   grammar: ...
-# Lastly, examples can be provided for multi-shot prompting
-examples:
+examples:  # Lastly, examples can be provided for multi-shot prompting
 - input: What will the weather be like tonight
   now: 2019-09-30 10:36
   latitude: 51.51
