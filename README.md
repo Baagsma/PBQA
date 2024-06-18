@@ -9,12 +9,10 @@ Pattern Based Question and Answer (PBQA) is a Python library that provides tools
  - [License](#license-and-acknowledgements)
 
 ## Installation
-To install the PBQA library, you can clone the repository and install the requirements:
+PBQA can be installed via pip:
 
 ```sh
-git clone https://github.com/Baagsma/PBQA.git
-python setup.py sdist
-pip install dist/PBQA-0.1.0.tar.gz
+pip install PBQA
 ```
 
 ## Getting Started
@@ -65,8 +63,8 @@ Future features in no particular order with no particular timeline:
 ## License and Acknowledgements
 This project is licensed under the terms of the MIT License. For more details, see the LICENSE file.
 
-Qdrant is a vector database that provides an API for managing and querying text embeddings. The PBQA library uses Qdrant to store and retrieve text embeddings.
+Qdrant is a vector database that provides an API for managing and querying text embeddings. PBQA uses Qdrant to store and retrieve text embeddings.
 
-llama.cpp is a C++ library that provides an easy-to-use interface for running LLMs on a wide variety of hardware. It includes support for Apple silicon, x86 architectures, and NVIDIA GPUs, as well as custom CUDA kernels for running LLMs on AMD GPUs via HIP. The PBQA library uses llama.cpp to interact with LLMs.
+llama.cpp is a C++ library that provides an easy-to-use interface for running LLMs on a wide variety of hardware. It includes support for Apple silicon, x86 architectures, and NVIDIA GPUs, as well as custom CUDA kernels for running LLMs on AMD GPUs via HIP. PBQA uses llama.cpp to interact with LLMs.
 
-The PBQA library was developed by Bart Haagsma as part of different project. If you have any questions or suggestions, please feel free to contact me at dev.baagsma@gmail.com
+PBQA was developed by Bart Haagsma as part of different project. If you have any questions or suggestions, please feel free to contact me at dev.baagsma@gmail.com
