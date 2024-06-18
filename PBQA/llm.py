@@ -174,13 +174,9 @@ class LLM:
             **kwargs,
         )
 
-        grammar = (
-            self._format_master_grammar(
-                pattern=pattern,
-                exclude=exclude,
-            )
-            if not grammar
-            else grammar
+        grammar = grammar or self._format_master_grammar(
+            pattern=pattern,
+            exclude=exclude,
         )
 
         model_defaults = self.models[model]
@@ -457,23 +453,24 @@ class LLM:
         metadata = self.db.get_metadata(pattern)
 
         grammars = {}
+
         for comp in metadata["components"]:
-            if comp in exclude or (
-                comp in metadata
-                and metadata[comp]
-                and metadata[comp].get("external", False)
+            if (
+                comp in exclude
+                or not metadata[comp]
+                or metadata[comp].get("external", False)
             ):
                 continue
-            if not metadata[comp] or "grammar" not in metadata[comp]:
-                grammars[comp] = None
-            else:
-                grammars[comp] = metadata[comp]["grammar"]
+
+            grammars[comp] = metadata[comp].get("grammar", None)
 
         if len(grammars) == 0:
             return None
 
         if len(grammars) == 1:
-            return grammars[list(grammars.keys())[0]]
+            return grammars[
+                list(grammars.keys())[0]
+            ]  # If there is only one component, return the grammar for that component
 
         grammar = 'root ::= "{"'
 
@@ -586,8 +583,17 @@ string ::=
 
         answer = output["choices"][0]["message"]["content"]
 
-        if len(set(metadata["components"]) - set(exclude) - set(external.keys())) == 1:
-            return answer
+        if (
+            len(
+                component := set(metadata["components"])
+                - set(exclude)
+                - set(external.keys())
+            )
+            == 1
+        ):
+            return {
+                component.pop(): answer
+            }  # When there is only one component, the model output is a string without a grammar for quality and speed, so the output has to be parsed into a dictionary manually
         else:
             try:
                 return json.loads(answer)
