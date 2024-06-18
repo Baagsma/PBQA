@@ -9,23 +9,31 @@ Pattern Based Question and Answer (PBQA) is a Python library that provides tools
  - [License](#license-and-acknowledgements)
 
 ## Installation
-PBQA can be installed via pip:
+PBQA requires Python 3.9 or higher and can be installed via pip:
 
 ```sh
 pip install PBQA
 ```
 
 ## Getting Started
-First, a database is set up into which your patterns can be loaded. These patterns determine the structure of the LLMs responses and each of its components. The LLM is then connected to the database and the llama.cpp server running the model. When queried, the LLM will then generates a response based on the specified pattern and optional external data.
+### llama.cpp
+PBQA requires a running instance of llama.cpp to interact with LLMs. For instructions on installation, see the [llama.cpp repository](https://github.com/ggerganov/llama.cpp/tree/master?tab=readme-ov-file#usage). For instructions on running the server, consult the [following page](https://github.com/ggerganov/llama.cpp/blob/master/examples/server/README.md#quick-start).
+
+### Python
+PBQA provides a simple API for querying LLMs.
 
 ```python
 from PBQA import DB, LLM
 from time import strftime
 
+# First, we set up a database at a specified path
 db = DB(path="examples/db")
+# Then, we load a pattern file into the database
 db.load_pattern("examples/weather.yaml")
 
+# Next, we connect to the LLM server
 llm = LLM(db=db, host="192.168.0.1")
+# And connect to the model
 llm.connect_model(
     model="llama",
     port=8080,
@@ -33,6 +41,8 @@ llm.connect_model(
     temperature=0,
 )
 
+# Finally, we query the LLM and receive a response based on the specified pattern
+# Optionally, external data can be provided to the LLM which it can use in its response
 weather_query = llm.ask(
         "Could I see the stars tonight?",
         "weather",
@@ -41,7 +51,7 @@ weather_query = llm.ask(
     )
 ```
 
-Given the [weather.yaml](examples/weather.yaml) pattern file and [llama3](https://huggingface.co/QuantFactory/Meta-Llama-3-8B-Instruct-GGUF) running on 192.168.0.1:8080, `weather_query` should look something like this:
+Given the [weather.yaml](examples/weather.yaml) pattern file and [llama3](https://huggingface.co/QuantFactory/Meta-Llama-3-8B-Instruct-GGUF) running on 192.168.0.1:8080, the response should look something like this:
 
 ```json
 {
@@ -53,12 +63,46 @@ Given the [weather.yaml](examples/weather.yaml) pattern file and [llama3](https:
 
 For more examples, see the [examples](examples) directory.
 
+### Pattern Files
+Pattern files are used to guide the LLM in generating responses. They are written in YAML and consist of three parts: the system prompt, component metadata, and examples.
+
+```yaml
+system_prompt: Your job is to translate the user's input into a weather query. Reply with the json for the weather query and nothing else.
+# Each component needs to have it's own key, "component:" at minimum
+now:  
+  external: true  # Optionally, specify whether the component requires external data
+latitude:
+  grammar: |  # Or define a GBNF grammar
+    root         ::= coordinate
+    coordinate   ::= integer "." integer
+    integer      ::= digit | digit digit
+    digit        ::= "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
+longitude:
+  grammar: ...
+time:
+  grammar: ...
+# Lastly, examples can be provided for multi-shot prompting
+examples:
+- input: What will the weather be like tonight
+  now: 2019-09-30 10:36
+  latitude: 51.51
+  longitude: 0.13
+  time: 2019-09-30 20:00
+- input: Could I see the stars tonight?
+  ...
+```
+
+For more examples, look at the pattern files in the [examples](examples) directory.
+
 ## Roadmap
 Future features in no particular order with no particular timeline:
     
  - Option to use self-hosted Qdrant server
  - Support for more LLM backends
  - Parallel query execution
+
+## Contributing
+Contributions are welcome! If you have any suggestions or would like to contribute, please open an issue or a pull request.
 
 ## License and Acknowledgements
 This project is licensed under the terms of the MIT License. For more details, see the LICENSE file.
