@@ -91,7 +91,7 @@ examples:  # Lastly, examples can be provided for multi-shot prompting
   ...
 ```
 
-For more examples, look at the pattern files in the [examples](examples) directory.
+For more examples, look at the pattern files in the [examples](examples) directory. For more information on GBNF grammars, see the [this page](https://github.com/ggerganov/llama.cpp/tree/master/grammars#gbnf-guide).
 
 ## Roadmap
 Future features in no particular order with no particular timeline:
