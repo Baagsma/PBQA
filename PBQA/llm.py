@@ -119,6 +119,7 @@ class LLM:
         exclude: List[str] = [],
         n_hist: int = 0,
         n_example: int = 0,
+        min_d: float = None,
         use_cache: bool = True,
         grammar: str = None,
         **kwargs,
@@ -139,6 +140,7 @@ class LLM:
         - exclude (List[str]): components to exclude from the response.
         - n_hist (int): The number of historical examples to load from the database.
         - n_example (int): The number of examples to load from the database.
+        - min_d (float): The minimum distance between the input and the examples.
         - use_cache (bool): Whether to use the cache for the response.
         - grammar (str): The grammar to use for the response.
         - kwargs: Additional arguments to pass when querying the database.
@@ -171,6 +173,7 @@ class LLM:
             include_system_prompt=include_system_prompt,
             n_hist=n_hist,
             n_example=n_example,
+            min_d=min_d,
             **kwargs,
         )
 
@@ -240,7 +243,7 @@ class LLM:
         n_example: int = 0,
         n_hist: int = 0,
         hist_duration: int = DEFAULT_HIST_DURATION,
-        max_d: float = None,
+        min_d: float = None,
         user_name: str = DEFAULT_USER_NAME,
         assistant_name: str = DEFAULT_ASSISTANT_NAME,
         **kwargs,
@@ -261,7 +264,7 @@ class LLM:
         - n_example (int): The number of examples to load from the database.
         - n_hist (int): The number of historical examples to load from the database.
         - hist_duration (int): The duration of the historical examples to load.
-        - max_d (float): The maximum distance to use in the query.
+        - min_d (float): The minimum distance between the input and the examples.
         - user_name (str): The name of the user.
         - assistant_name (str): The name of the assistant.
         - kwargs: Additional arguments to pass when querying the database.
@@ -388,7 +391,7 @@ class LLM:
                 pattern,
                 input,
                 n=n_example,
-                max_d=max_d,
+                min_d=min_d,
                 where=where_filter,
             )
             messages += format(examples)
@@ -521,6 +524,7 @@ string ::=
         exclude: List[str] = [],
         n_hist: int = 0,
         n_example: int = 0,
+        min_d: float = None,
         use_cache: bool = True,
         grammar: str = None,
         **kwargs,
@@ -541,6 +545,7 @@ string ::=
         - exclude (List[str]): components to exclude from the response.
         - n_hist (int): The number of historical examples to load from the database.
         - n_example (int): The number of examples to load from the database.
+        - min_d (float): The minimum distance between the input and the examples.
         - use_cache (bool): Whether to use the cache for the response.
         - grammar (str): The grammar to use for the response.
         - kwargs: Additional arguments to pass when querying the database.
@@ -576,6 +581,7 @@ string ::=
             exclude=exclude,
             n_hist=n_hist,
             n_example=n_example,
+            min_d=min_d,
             use_cache=use_cache,
             grammar=grammar,
             **kwargs,
