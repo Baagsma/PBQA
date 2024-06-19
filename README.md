@@ -6,7 +6,7 @@ Pattern Based Question and Answer (PBQA) is a Python library that provides tools
  - [Installation](#installation)
  - [Getting Started](#getting-started)
  - [Roadmap](#roadmap)
-  - [Contributing](#contributing)
+ - [Contributing](#contributing)
  - [License](#license-and-acknowledgements)
 
 ## Installation
