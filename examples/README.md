@@ -137,7 +137,7 @@ This forecast object is then [formatted](#formatting), dumped into a json string
 As defined by the [answer_json.yaml](answer_json.yaml) pattern file, the LLM generates a response with a `thought` and `answer` component. The preceding `thought` component allows the LLM to [think](https://arxiv.org/abs/2201.11903) about the provided data before giving a final answer to improve the quality of the response.
 
 ## Formatting
-Before passing the forecast object to the LLM, the data from the Open-Meteo API is formatted into a more LLM-friendly json object. This is done to prevent misinterpretation of the data by the LLM as much as possible, improving the quality of the response.
+Before passing the forecast object to the LLM, the data from the Open-Meteo API is formatted into a more LLM-friendly json object. This is done to prevent misinterpretation of the data by the LLM as much as possible.
 
 ```json
 {
