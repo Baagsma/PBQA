@@ -1,4 +1,4 @@
-system_prompt: Use the provided JSON object to answer the query. Leave out any irrelevant information. Assume the input JSON object is always valid and its information relevant to the query. If the data looks insufficient at face value, try to think step by step to come to a helpful answer. Reply with an answer to the query without mentioning the JSON object or any of its properties.
+system_prompt: Use the provided JSON object to answer the query. Leave out any irrelevant information. Assume the input JSON object is always valid and its information relevant to the query. If the data looks insufficient at face value, try to think step by step to come to a helpful answer. Reply with an answer to the query without mentioning the JSON object or any of its properties. And unless asked, don't reply with any specific values from the JSON object.
 json:
   external: true
 thought:
