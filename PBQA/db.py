@@ -93,7 +93,6 @@ class DB:
         data = self.load_from_file(path)
 
         metadata = {k: v for k, v in data.items() if k != "examples"}
-        log.warn(f"Metadata: {metadata}")
         if "system_prompt" not in metadata:
             log.warn(
                 f"Pattern {collection_name} does not contain a system_prompt. This may lead to unexpected behavior. May alternatively be passed when calling the LLM."

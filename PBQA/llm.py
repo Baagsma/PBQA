@@ -524,7 +524,7 @@ string ::=
         use_cache: bool = True,
         grammar: str = None,
         **kwargs,
-    ) -> Union[str, dict]:
+    ) -> dict:
         """
         Ask the LLM a question.
 
@@ -591,9 +591,9 @@ string ::=
             )
             == 1
         ):
-            return {
-                component.pop(): answer
-            }  # When there is only one component, the model output is a string without a grammar for quality and speed, so the output has to be parsed into a dictionary manually
+            return json.loads(
+                str({component.pop(): answer})
+            )  # When there is only one component, the model output is a string without a grammar for quality and speed, so the output has to be parsed into a dictionary manually
         else:
             try:
                 return json.loads(answer)
