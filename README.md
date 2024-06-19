@@ -99,6 +99,7 @@ Future features in no particular order with no particular timeline:
     
  - Option to use self-hosted Qdrant server
  - Support for more LLM backends
+ - Combining multi-shot prompting with message history
  - Parallel query execution
 
 ## Relevant Literature
