@@ -1,3 +1,6 @@
+# Conversation
+
+
 # Function Calling
 One common usecase for LLMs is function calling. While PBQA doesn't call functions directly, using patterns, it is easy to create valid (json) objects to be used as input for tools. By combining patterns, it is easy to create an agent that can navigate a symbolic systems.
 
@@ -46,7 +49,7 @@ digit        ::= "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
 This grammar ensures that the `latitude` component is a float with a single decimal point. The `longitude` and `time` components have similar grammars.
 
 ## Agent
-To use this pattern, first the vector database must be initialized and the necessary pattern files loaded. After that, the LLM can be connected to the model to be queried.
+To use patterns, first the vector database must be initialized and the necessary files loaded. After that, the LLM can be connected to the model(s) to be queried.
 
 ```py
 from PBQA import DB, LLM
@@ -64,7 +67,7 @@ llm.connect_model(
 )
 ```
 
-Creating something akin to an Agent class can be useful for organize groups of queries/patterns for completing specific tasks.
+Creating a class similar to an 'Agent' can be beneficial for structuring sets of queries or patterns that are designed to accomplish specific tasks.
 
 ```py
 from json import dumps
@@ -136,7 +139,11 @@ This forecast object is then [formatted](#formatting), dumped into a json string
 
 As defined by the [answer_json.yaml](answer_json.yaml) pattern file, the LLM generates a response with a `thought` and `answer` component. The preceding `thought` component allows the LLM to [think](https://arxiv.org/abs/2201.11903) about the provided data before giving a final answer to improve the quality of the response.
 
-## Formatting
+Regarding the earlier weather query, note a specific latitude and longitude were returned by the LLM. This is the result of the examples that were provided in the [pattern](weather.yaml). Specifically, in every case where no specific location is mentioned, the example uses the longitude and latitude of London. Since the input query did not specify a location, the LLM likewise defaulted to London in this case.
+
+This concept becomes more powerful when new examples are stored in the database, allowing the LLM to [learn](#feedback) from past interactions and provide more accurate responses in the future.
+
+### Formatting
 Before passing the forecast object to the LLM, the data from the Open-Meteo API is formatted into a more LLM-friendly json object. This is done to prevent misinterpretation of the data by the LLM as much as possible.
 
 ```json
@@ -149,3 +156,6 @@ Before passing the forecast object to the LLM, the data from the Open-Meteo API 
 ```
 
 In this case, the unit of measurement is added to the temperature and precipitation values, a percentage sign is added to the precipitation probability, and the cloud cover is explicitly expressed as a percentage of the sky (as opposed to probability). Each model will have its own preferences for how data is formatted, down to whitespaces and punctuation. As such, it can be valuable to test different formatting strategies to see which one works best for a given model.
+
+
+# Feedback
