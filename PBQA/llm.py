@@ -1,4 +1,5 @@
 import json
+from json import dumps, loads
 import logging
 from time import time
 from typing import List, Union
@@ -122,6 +123,7 @@ class LLM:
         min_d: float = None,
         use_cache: bool = True,
         grammar: str = None,
+        stop: List[str] = [],
         **kwargs,
     ) -> json:
         """
@@ -143,6 +145,7 @@ class LLM:
         - min_d (float): The minimum distance between the input and the examples.
         - use_cache (bool): Whether to use the cache for the response.
         - grammar (str): The grammar to use for the response.
+        - stop (List[str]): Strings to stop the response generation.
         - kwargs: Additional arguments to pass when querying the database.
 
         Returns:
@@ -203,7 +206,7 @@ class LLM:
             "cache_prompt": use_cache,
             "messages": messages,
             "grammar": grammar,
-            "stop": parameters["stop"],
+            "stop": parameters["stop"] + stop,
             "temperature": parameters["temperature"],
             "min_p": parameters["min_p"],
             "top_p": parameters["top_p"],
@@ -214,7 +217,7 @@ class LLM:
         headers = {"Content-Type": "application/json", "Authorization": "Bearer no-key"}
 
         try:
-            llm_response = requests.post(url, headers=headers, data=json.dumps(data))
+            llm_response = requests.post(url, headers=headers, data=dumps(data))
         except requests.exceptions.RequestException as e:
             raise ValueError(
                 f"Request to LLM failed: {str(e)}\n\nEnsure the llama.cpp server is running (python3 server/run.py)."
@@ -315,9 +318,7 @@ class LLM:
                 else:
                     return {
                         "role": role,
-                        "content": json.dumps(
-                            {comp: response[comp] for comp in components}
-                        ),
+                        "content": dumps({comp: response[comp] for comp in components}),
                     }
 
             formatted_responses = []
@@ -366,6 +367,7 @@ class LLM:
 
             messages += format(base_examples)
 
+        examples = []
         if input:
             components = [
                 comp for comp in metadata["components"] if comp not in exclude
@@ -527,6 +529,7 @@ string ::=
         min_d: float = None,
         use_cache: bool = True,
         grammar: str = None,
+        stop: List[str] = [],
         **kwargs,
     ) -> dict:
         """
@@ -548,6 +551,7 @@ string ::=
         - min_d (float): The minimum distance between the input and the examples.
         - use_cache (bool): Whether to use the cache for the response.
         - grammar (str): The grammar to use for the response.
+        - stop (List[str]): Strings to stop the response generation.
         - kwargs: Additional arguments to pass when querying the database.
 
         Returns:
@@ -584,6 +588,7 @@ string ::=
             min_d=min_d,
             use_cache=use_cache,
             grammar=grammar,
+            stop=stop,
             **kwargs,
         )
 
@@ -597,12 +602,12 @@ string ::=
             )
             == 1
         ):
-            return json.loads(
-                str({component.pop(): answer})
+            return loads(
+                dumps({component.pop(): answer})
             )  # When there is only one component, the model output is a string without a grammar for quality and speed, so the output has to be parsed into a dictionary manually
         else:
             try:
-                return json.loads(answer)
+                return loads(answer)
             except json.JSONDecodeError:
                 raise ValueError(
                     f"Failed to decode JSON answer:\n\t{answer}\n\nMake sure the correct stop strings are configured for the model {model}."

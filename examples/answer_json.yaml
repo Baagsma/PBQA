@@ -1,4 +1,4 @@
-system_prompt: Use the provided JSON object to answer the query. Leave out any irrelevant information. Assume the input JSON object is always valid and its information relevant to the query. If the data looks insufficient at face value, try to think step by step to come to a helpful answer. Reply with an answer to the query without mentioning the JSON object or any of its properties. And unless asked, don't reply with any specific values from the JSON object.
+system_prompt: Use the provided JSON object to answer the query. Leave out any irrelevant information. If the data looks insufficient at face value, try to think step by step to come to a helpful answer. Reply with an answer to the query without mentioning the JSON object or any of its properties. Unless asked, don't reply with any specific values or numbers from the JSON object.
 json:
   external: true
 thought:
@@ -7,12 +7,12 @@ examples:
   - input: "Can I book a table for two at The Italian Bistro for tonight at 7 PM?"
     json: '{"restaurant": "The Italian Bistro", "availability": {"2024-06-19": {"18:00": false, "19:00": true, "20:00": true}}, "contact": {"phone": "123-456-7890", "email": "reservations@italianbistro.com"}}'
     thought: "There is availability at 7 PM for a table for two, so the reservation can be made. It might be a good idea to contact the restaurant directly to confirm the booking."
-    answer: "Yes, you can book a table for two at The Italian Bistro for tonight at 7 PM. They have availability. You can call them at 123-456-7890 or email reservations@italianbistro.com to confirm your reservation."
+    answer: "Yes, you should be able to book a table for two at around 7 PM, or alternatively at 8 PM. You can reach them at 123-456-7890 or contact them via email at reservations@italianbistro.com"
 
   - input: "When will my package arrive?"
     json: '{"package_id": "ABC123", "status": "Out for Delivery", "estimated_delivery": "2024-06-19", "carrier": "FastShip", "tracking_url": "http://fastship.com/track/ABC123"}'
     thought: "The package is currently out for delivery and is expected to arrive today. It’s advisable to keep an eye on the tracking link for real-time updates on its progress."
-    answer: "Your package with ID ABC123 is out for delivery and is expected to arrive today. You can track its progress in real-time using this link: [FastShip Tracking](http://fastship.com/track/ABC123)."
+    answer: "It's scheduled to arrive sometime today as it's currently out for delivery. You can track the progress in real-time using this link: [FastShip Tracking](http://fastship.com/track/ABC123)."
 
   - input: "Could I afford a vacation to Hawaii next month?"
     json: '{"account": "Savings", "balance": "$1,234.56"}'
@@ -22,14 +22,14 @@ examples:
   - input: "What's the best way to get to the airport from downtown?"
     json: '{"transport": {"options": ["Taxi", "Public Transit", "Ride-Sharing"], "prices": {"Taxi": "$30", "Public Transit": "$5", "Ride-Sharing": "$20"}}}'
     thought: "The three main transportation options are Taxi, Public Transit, and Ride-Sharing. The prices are $30 for Taxi, $5 for Public Transit, and $20 for Ride-Sharing. The best way would depend on your budget, time constraints, and personal preference."
-    answer: "The best way to get to the airport from downtown depends on your budget, time constraints, and personal preference. You can choose between Taxi ($30), Public Transit ($5), or Ride-Sharing ($20)."
+    answer: "Public Transit is the cheapest option at $5, while a Taxi and Ride-Sharing would cost $30 and $20 respectively. The best way would depend on your budget, time constraints, and personal preference."
 
   - input: "Can I wear shorts and a t-shirt to the event?"
     json: '{"event": "Outdoor Concert", "weather": {"temperature": "23°C", "conditions": "Sunny"}}'
     thought: "The weather for the outdoor concert is expected to be sunny with a temperature of 23°C. Based on this, wearing shorts and a t-shirt should be comfortable and appropriate for the event."
-    answer: "Yes, you can wear shorts and a t-shirt to the outdoor concert. The weather is expected to be sunny with a temperature of 23°C."
+    answer: "Yeah, shorts and a t-shirt should be fine for the concert. The weather is expected to be sunny with a temperature of around 23 degrees."
 
   - input: "What's the best time to visit the museum?"
     json: '{"museum": "Art Museum", "hours": {"Monday": "Closed", "Tuesday": "10:00 AM - 5:00 PM", "Wednesday": "10:00 AM - 5:00 PM", "Thursday": "10:00 AM - 8:00 PM", "Friday": "10:00 AM - 5:00 PM", "Saturday": "10:00 AM - 5:00 PM", "Sunday": "12:00 PM - 5:00 PM"}}'
     thought: "The Art Museum is closed on Mondays and has varying hours throughout the week. The best time to visit would depend on your schedule and preferences. Thursday offers extended hours until 8:00 PM."
-    answer: "The best time to visit the Art Museum would depend on your schedule and preferences. The museum is closed on Mondays. On Thursdays, it's open until 8:00 PM, providing more time for exploration."
+    answer: "The Art Museum is open from 10:00 AM to 5:00 PM on every day except Monday, with extended hours until 8:00 PM on Thursdays. The best time to visit would depend on your schedule and preferences."

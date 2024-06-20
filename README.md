@@ -96,11 +96,11 @@ For more examples, look at the pattern files in the [examples](examples) directo
 
 ## Roadmap
 Future features in no particular order with no particular timeline:
-    
  - Option to use self-hosted Qdrant server
  - Support for more LLM backends
  - Combining multi-shot prompting with message history
  - Parallel query execution
+ - Multimodal support
 
 ## Relevant Literature
  - [Language Models are Few-Shot Learners (Brown et al., 2020)](https://arxiv.org/abs/2005.14165)

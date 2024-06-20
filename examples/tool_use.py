@@ -22,13 +22,12 @@ def get_forecast(
         key=lambda i: abs(data["hourly"]["time"][i] - target_epoch),
     )
 
+    data = data["hourly"]
     return {
-        "temperature": data["hourly"]["temperature_2m"][closest_index],
-        "precipitation_probability": data["hourly"]["precipitation_probability"][
-            closest_index
-        ],
-        "precipitation": data["hourly"]["precipitation"][closest_index],
-        "cloud_cover": data["hourly"]["cloud_cover"][closest_index],
+        "temperature": data["temperature_2m"][closest_index],
+        "precipitation_probability": data["precipitation_probability"][closest_index],
+        "precipitation": data["precipitation"][closest_index],
+        "cloud_cover": data["cloud_cover"][closest_index],
     }
 
 
