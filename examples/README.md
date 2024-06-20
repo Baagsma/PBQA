@@ -39,7 +39,7 @@ Lastly, examples may be provided in the pattern file for [multi-shot prompting](
 See the [conversation section](#conversation) for an example of a pattern with a system prompt, or the [function calling section](#function-calling) for an example of patterns with grammars, examples, and external data.
 
 # Conversation
-Conversational agents are a common usecase for LLMs. While PBQA allows for [structured responses](#grammars), it can also be used to generate free-form responses. Below is an example of a pattern file for a conversational agent.
+Conversational agents are a common usecase for LLMs. While PBQA allows for [structured responses](#grammar), it can also be used to generate free-form responses. Below is an example of a pattern file for a conversational agent.
 
 ```yaml
 system_prompt: You are a virtual assistant. Your tone is friendly and helpful.
