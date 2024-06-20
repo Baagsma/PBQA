@@ -174,6 +174,7 @@ class DB:
         self,
         input: str,
         collection_name: str,
+        time_added: time = time(),
         **kwargs,
     ) -> dict:
         """
@@ -182,8 +183,9 @@ class DB:
         This method adds a document to a collection. The document should contain an `input` key with the document's input. Additional keys in the dictionary are treated as metadata for the document.
 
         Parameters:
-        - collection_name (str): The name of the collection to add the document to.
         - input (str): The document's input.
+        - collection_name (str): The name of the collection to add the document to.
+        - time_added (time, optional): The time the document was added. Defaults to the current time.
         - **kwargs: Additional keyword arguments to pass as metadata for the document.
 
         Returns:
@@ -216,9 +218,7 @@ class DB:
                     payload={
                         **kwargs,
                         "input": input,
-                        "time_added": (
-                            kwargs["time_added"] if "time_added" in kwargs else time()
-                        ),
+                        "time_added": time_added,
                     },
                 )
             ],
@@ -332,6 +332,11 @@ class DB:
         - List[dict]: A list of dictionaries, each representing a matching document. Each dictionary contains the document's input, id, distance from the query input, and metadata.
         """
 
+        if collection_name not in self.get_collections():
+            raise ValueError(
+                f"Collection {collection_name} not found. Make sure to load the pattern first or create the collection manually."
+            )
+
         if input == "":
             raise ValueError("Input cannot be empty. Use where method instead.")
 
@@ -405,6 +410,11 @@ class DB:
         Returns:
         - List[dict]: A list of dictionaries, each representing a matching document. Each dictionary contains the document's input, id, and metadata.
         """
+
+        if collection_name not in self.get_collections():
+            raise ValueError(
+                f"Collection {collection_name} not found. Make sure to load the pattern first or create the collection manually."
+            )
 
         if n == -1:
             n = 20

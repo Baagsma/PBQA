@@ -1,13 +1,42 @@
-# Pattern Files
-Pattern files are written in YAML and are used to define the structure of an LLM's response. They must have at least one key for every component of the response, each of which can have optional metadata.
+# Patterns
+Patterns are written in YAML and are used to define the structure of an LLM's response. The file must contain at least one key for every component of the response, each of which can have its own metadata or be left empty.
 
-The `external` key can be used to specify a component that requires external data. This data has to be passed as part of the `llm.ask()` method and can be used to provide the LLM with additional information to generate a response.
+Below is an example of a pattern file for a weather query.
 
-Alternatively, a `grammar` key can be used to define a [GBNF grammar](#grammars) for a component. This ensures that the LLM generates a valid response based on the specified grammar.
+```yaml
+system_prompt: Your job is to translate the user's input into a weather query. Reply with the json for the weather query and nothing else.
+now:
+  external: true
+latitude:
+  grammar: |
+    root         ::= coordinate
+    coordinate   ::= integer "." integer
+    integer      ::= digit | digit digit
+    digit        ::= "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
+longitude:
+  grammar: ...
+time:
+  grammar: ...
+examples:
+- input: What will the weather be like tonight
+  now: 2019-09-30 10:36
+  latitude: 51.51
+  longitude: 0.13
+  time: 2019-09-30 20:00
+- input: Could I see the stars tonight?
+  ...
+```
 
-Besides the components, the pattern file may also contain a system prompt and examples. The system prompt is an instruction given to the LLM, telling it what to do. One may alternatively be passed as an argument to the `llm.ask()` method, or left out entirely. Examples are used for [multi-shot prompting](https://arxiv.org/abs/2005.14165) to improve the quality of the LLM's responses.
+Components in a pattern file can have the following metadata:
 
-See the [conversation section](#conversation) for an example of a pattern file with a system prompt, or the [function calling section](#function-calling) for an example of a pattern file with examples, grammars, and an external component.
+- `external`: Specifies whether the component requires external data. If `true`, the component will be passed as an argument to the `llm.ask()` method.
+- `grammar`: A [grammar](#grammars) that defines the structure of the component.
+
+Besides components, a pattern file may also contain a system prompt. The system prompt is an optional instruction given to the LLM to guide its response. It may alternatively be passed as an argument to the `llm.ask()` method, or left out entirely.
+
+Lastly, examples may be provided in the pattern file for [multi-shot prompting](https://arxiv.org/abs/2005.14165) to improve the quality of the LLM's responses.
+
+See the [conversation section](#conversation) for an example of a pattern with a system prompt, or the [function calling section](#function-calling) for an example of patterns with grammars, examples, and external data.
 
 # Conversation
 Conversational agents are a common usecase for LLMs. While PBQA allows for [structured responses](#grammars), it can also be used to generate free-form responses. Below is an example of a pattern file for a conversational agent.
@@ -19,7 +48,7 @@ reply:
 
 Though no grammar or examples are provided, the response will still be steered by the system prompt.
 
-## Setup
+## Script
 To use patterns, first the vector database must be initialized and the necessary files loaded. After that, the LLM can be connected to the model(s) to be queried.
 
 ```py
@@ -59,7 +88,13 @@ while True:
     print(f"\nAssistant\n> {response['reply']}\n")
 ```
 
-The `n_hist` parameter is used to specify the number of previous interactions to consider when generating a response. The history will always consist of `n_hist` entries in the database, sorted by the most recent interactions. This can be useful for maintaining context in a conversation.
+The `n_hist` parameter is used to specify the number of previous interactions to consider when generating a response. The history will always consist of `n_hist` entries in the database, ordered chronologically by the `time_added` field (optional argument in `db.add()`). This can be useful for maintaining context in a conversation.
+
+By default, the DB has a "collection" for each pattern that was loaded. And when unspecified, the default collection from which the history is retrieved when queried, is the pattern name. This can be overridden by specifying the `history_name` parameter in the `llm.ask()` method.
+
+Since the exchange is stored after each interaction, it will persists across sessions. 
+
+_[Note.]()_ The use of `n_hist` in conjunction with `n_examples` has not been properly tested yet. Using both parameters may lead to unexpected behavior.
 
 # Function Calling
 Another common usecase for LLMs is function calling. While PBQA doesn't call functions directly, using patterns, it is easy to create valid (json) objects to be used as input for tools. By combining patterns, it is easy to create an agent that can navigate a symbolic systems.
@@ -78,15 +113,14 @@ def get_forecast(
 ):
     url = f"https://api.open-meteo.com/v1/forecast?latitude={latitude}&longitude={longitude}&hourly=temperature_2m,precipitation_probability,precipitation,cloud_cover&timeformat=unixtime"
     response = requests.get(url)
-    data = response.json()
+    data = response.json()["hourly"]
 
     target_epoch = datetime.fromisoformat(time).timestamp()
     closest_index = min(
-        range(len(data["hourly"]["time"])),
-        key=lambda i: abs(data["hourly"]["time"][i] - target_epoch),
+        range(len(data["time"])),
+        key=lambda i: abs(data["time"][i] - target_epoch),
     )
 
-    data = data["hourly"]
     return {
         "temperature": data["temperature_2m"][closest_index],
         "precipitation_probability": data["precipitation_probability"][closest_index],
@@ -127,7 +161,7 @@ llm.connect_model(
 )
 ```
 
-Creating a class similar to an 'Agent' can be beneficial for structuring sets of queries or patterns that are designed to accomplish specific tasks.
+Creating a class akin to an 'Agent' can be useful for structuring sets of queries or patterns that are designed to accomplish specific tasks.
 
 ```py
 from json import dumps
@@ -166,7 +200,7 @@ In the first query, the LLM is asked to provide a valid weather query, as define
 ## Inference
 Running the function with the input:
 
-> Could I see the stars tonight?
+    Could I see the stars tonight?
 
 First results in the following query object:
 
@@ -174,7 +208,7 @@ First results in the following query object:
 {
     "latitude": 51.51,
     "longitude": 0.13,
-    "time": "2024-06-19 23:00"
+    "time": "2024-06-22 23:00"
 }
 ```
 
@@ -182,10 +216,10 @@ Then, using the `get_forecast` function, the following forecast object is genera
 
 ```json
 {
-    "temperature": "13.2",
-    "precipitation_probability": "0",
-    "precipitation": "0.0",
-    "cloud_cover": "88"
+    "temperature": "19.3C",
+    "precipitation_probability": "3%",
+    "precipitation": "0.0mm",
+    "cloud_cover": "64% coverage"
 }
 ```
 
@@ -193,14 +227,14 @@ This forecast object is then [formatted](#formatting), dumped into a json string
 
 ```json
 {
-    "thought": "The weather doesn't look very promising for stargazing tonight. The cloud cover is quite high, which might make it difficult to see the stars.",
-    "answer": "Unfortunately, the weather doesn't look ideal for stargazing tonight. The cloud cover is quite high, at 88% of the sky, which might make it difficult to see the stars. You might want to consider checking the weather forecast again or waiting for a clearer night."
+    "thought": "The temperature is quite cool at 19.3C, but the precipitation probability is low at 3%. However, the cloud cover is quite high at 64%, which might make it difficult to see the stars. It's not ideal conditions, but it's not impossible either.",
+    "answer": "It might be a bit challenging to see the stars tonight due to the 64% cloud cover. However, the low precipitation probability and temperature are in your favor. If you're willing to brave the clouds, you might still be able to catch a glimpse of the stars."
 }
 ```
 
 As defined by the [answer_json.yaml](answer_json.yaml) pattern file, the LLM generates a response with a `thought` and `answer` component. The preceding `thought` component allows the LLM to [think](https://arxiv.org/abs/2201.11903) about the provided data before giving a final answer to improve the quality of the response.
 
-Regarding the weather query, note that the properties are based on both the input and the examples provided in the pattern file. While the input did not specify a location, the LLM defaulted to London's latitude and longitude. This is because the examples in the [pattern](weather.yaml) use London's coordinates when no specific location is mentioned.
+Regarding the weather query, note that the properties are based on both the input and the examples provided in the pattern file. While the input did not specify a location, the LLM defaulted to London's latitude and longitude. This is because the examples in the [pattern](weather.yaml) use the coordinates of London whenever no specific location is mentioned.
 
 This concept becomes more powerful when new examples are stored in the database, allowing the LLM to [learn](#feedback) from past interactions and provide more accurate responses in the future.
 
@@ -209,10 +243,10 @@ Before passing the forecast object to the LLM, the data from the Open-Meteo API 
 
 ```json
 {
-    "temperature": "13.2C",
-    "precipitation_probability": "0%",
+    "temperature": "19.3C",
+    "precipitation_probability": "3%",
     "precipitation": "0.0mm",
-    "cloud_cover": "88% of the sky"
+    "cloud_cover": "64% coverage"
 }
 ```
 
@@ -220,4 +254,4 @@ In this case, the unit of measurement is added to the temperature and precipitat
 
 
 # Feedback
-Explanation about n_examples
+Explanation about n_examples 

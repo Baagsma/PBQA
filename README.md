@@ -1,7 +1,7 @@
 <h1 align="center">Pattern Based Question and Answer</h1>
 
 ## Description
-Pattern Based Question and Answer (PBQA) is a Python library that provides tools for querying LLMs and managing text embeddings. It combines guided generation with [multi-shot prompting](https://arxiv.org/abs/2005.14165) to improve response quality and ensure consistency. By enforcing valid responses from LLMs, PBQA makes it easy to combine the intelligence, knowledge, and creativity of LLMs with the reliability and control of symbolic approaches.
+Pattern Based Question and Answer (PBQA) is a Python library that provides tools for querying LLMs and managing text embeddings. It combines [guided generation](examples/README.md#grammars) with [multi-shot prompting](https://arxiv.org/abs/2005.14165) to improve response quality and ensure consistency. By enforcing valid responses from LLMs, PBQA makes it easy to combine the flexibility of LLMs with the reliability and control of symbolic approaches.
 
  - [Installation](#installation)
  - [Getting Started](#getting-started)
@@ -16,9 +16,11 @@ PBQA requires Python 3.9 or higher, and can be installed via pip:
 pip install PBQA
 ```
 
+Additionally, PBQA requires a running instance of llama.cpp to interact with LLMs. For instructions on installation, see the [llama.cpp repository](https://github.com/ggerganov/llama.cpp/tree/master?tab=readme-ov-file#usage).
+
 ## Usage
 ### llama.cpp
-PBQA requires a running instance of llama.cpp to interact with LLMs. For instructions on installation, see the [llama.cpp repository](https://github.com/ggerganov/llama.cpp/tree/master?tab=readme-ov-file#usage). For instructions on running the server, consult the [following page](https://github.com/ggerganov/llama.cpp/blob/master/examples/server/README.md#quick-start).
+For instructions on hosting a model with llama.cpp, see the [following page](https://github.com/ggerganov/llama.cpp/blob/master/examples/server/README.md#quick-start). See [caching](#cache) for information on how to cache patterns.
 
 ### Python
 PBQA provides a simple API for querying LLMs.
@@ -94,15 +96,24 @@ examples:  # Lastly, examples can be provided for multi-shot prompting
 
 For more examples, look at the pattern files in the [examples](examples) directory. For more information on GBNF grammars, see the [this page](https://github.com/ggerganov/llama.cpp/tree/master/grammars#gbnf-guide).
 
+### Cache
+Unless overridden, a queries with the same pattern will use the same system prompt and base examples, allowing a large part of the response to be cached. This can be disabled by setting `use_cache=False` in the `ask()` method.
+
+_Note:_ To cache the patterns, PBQA will try allocate a slot/process for each pattern-model pair in the llama.cpp server. As such, make sure to set `-np` to the amount of unique combinations of patterns and models you want to cache.
+
 ## Roadmap
 Future features in no particular order with no particular timeline:
+
  - Option to use self-hosted Qdrant server
  - Support for more LLM backends
  - Combining multi-shot prompting with message history
  - Parallel query execution
  - Multimodal support
+ - Further speed improvements (possibly [batching](https://github.com/guidance-ai/guidance?tab=readme-ov-file#guidance-acceleration))
+ - Option to pick a specific slot for a query
 
 ## Relevant Literature
+
  - [Language Models are Few-Shot Learners (Brown et al., 2020)](https://arxiv.org/abs/2005.14165)
  - [Many-Shot In-Context Learning (Aragwal, 2024)](https://arxiv.org/abs/2404.11018)
  - [Chain-of-Thought Prompting Elicits Reasoning in Large Language Models (Wei et al., 2022)](https://arxiv.org/abs/2201.11903)

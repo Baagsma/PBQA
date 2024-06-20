@@ -14,15 +14,14 @@ def get_forecast(
 ):
     url = f"https://api.open-meteo.com/v1/forecast?latitude={latitude}&longitude={longitude}&hourly=temperature_2m,precipitation_probability,precipitation,cloud_cover&timeformat=unixtime"
     response = requests.get(url)
-    data = response.json()
+    data = response.json()["hourly"]
 
     target_epoch = datetime.fromisoformat(time).timestamp()
     closest_index = min(
-        range(len(data["hourly"]["time"])),
-        key=lambda i: abs(data["hourly"]["time"][i] - target_epoch),
+        range(len(data["time"])),
+        key=lambda i: abs(data["time"][i] - target_epoch),
     )
 
-    data = data["hourly"]
     return {
         "temperature": data["temperature_2m"][closest_index],
         "precipitation_probability": data["precipitation_probability"][closest_index],
@@ -41,7 +40,7 @@ class Agent:
             input=input,
             pattern="weather",
             model="llama",
-            external={"now": strftime("%Y-%m-%d %H:%M")},
+            external={"now": "2024-06-22 22:00"},  # strftime("%Y-%m-%d %H:%M")},
         )
 
         print(f"Query:\n{dumps(weather_query, indent=4)}\n")
@@ -63,7 +62,7 @@ class Agent:
             "temperature": f'{forecast["temperature"]}C',
             "precipitation_probability": f'{forecast["precipitation_probability"]}%',
             "precipitation": f'{forecast["precipitation"]}mm',
-            "cloud_cover": f'{forecast["cloud_cover"]}% of the sky',
+            "cloud_cover": f'{forecast["cloud_cover"]}% coverage',
         }
 
 
