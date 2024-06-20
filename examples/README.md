@@ -48,7 +48,7 @@ reply:
 
 Though no grammar or examples are provided, the response will still be steered by the system prompt.
 
-## Script
+## Setup
 To use patterns, first the vector database must be initialized and the necessary files loaded. After that, the LLM can be connected to the model(s) to be queried.
 
 ```py
