@@ -250,7 +250,7 @@ Before passing the forecast object to the LLM, the data from the Open-Meteo API 
 }
 ```
 
-In this case, the unit of measurement is added to the temperature and precipitation values, a percentage sign is added to the precipitation probability, and the cloud cover is explicitly expressed as a percentage of the sky (as opposed to probability). Each model will have its own preferences for how data is formatted, down to whitespaces and punctuation. As such, it can be valuable to test different formatting strategies to see which one works best for a given model.
+In this case, the unit of measurement is added to the temperature and precipitation values, a percentage sign is added to the precipitation probability, and the cloud cover is explicitly expressed as a coverage percentage (as opposed to probability). Each model will have its own preferences for how data is formatted, down to whitespaces and punctuation. As such, it may be valuable to test different formatting strategies to see which one works best for a given model.
 
 
 # Feedback
