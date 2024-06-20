@@ -195,7 +195,7 @@ class Agent:
 
 Above, the `ask_weather` method is a tool for asking the LLM about a weather related question.
 
-In the first query, the LLM is asked to provide a valid weather query, as defined by the [weather.yaml](weather.yaml) pattern. This query object is then passed to the `get_forecast` function to obtain the forecast response from Open-Meteo. Lastly, the forecast is [formatted](#formatting) into a json object and passed to the LLM to generate a response.
+In the first query, the LLM is asked to provide a valid weather query, as defined by the [weather pattern](weather.yaml). This query object is then passed to the `get_forecast` function to obtain the forecast response from Open-Meteo. Lastly, the forecast is [formatted](#formatting) and turned into a json object, before being passed to the LLM to generate the final response.
 
 ## Inference
 Running the function with the input:
