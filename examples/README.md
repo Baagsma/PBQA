@@ -260,4 +260,4 @@ Explanation about n_examples
 The `n_examples` parameter is used to specify the number of examples to consider when generating a response. The examples will always consist of `n_examples` entries in the database, ordered by semantic similarity to the input query. Additional keyword arguments can be passed to the `llm.ask()` method to further filter the examples.
 
 ### Examples and History
-Although using both `n_examples` and `n_hist` in a query should lead to a valid call. The way the entries are formatted currently makes no distinction between examples and history, the history merely being appended after the examples. This may lead to unexpected behavior and poorer response quality when using both parameters.
+While using both `n_examples` and `n_hist` in a query should lead to a valid call, using both parameters is not recommended. The way the entries are currently formatted makes no distinction between examples and history, the history merely being appended after the examples. This may lead to unexpected behavior and poorer response quality when using both parameters.
