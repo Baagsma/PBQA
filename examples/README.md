@@ -30,7 +30,7 @@ examples:
 Components in a pattern file can have the following metadata:
 
 - `external`: Specifies whether the component requires external data. If `true`, the component will be passed as an argument to the `llm.ask()` method.
-- `grammar`: A [grammar](#grammars) that defines the structure of the component.
+- `grammar`: A [grammar](#grammar) that defines the structure of the component.
 
 Besides components, a pattern file may also contain a system prompt. The system prompt is an optional instruction given to the LLM to guide its response. It may alternatively be passed as an argument to the `llm.ask()` method, or left out entirely.
 
@@ -129,7 +129,7 @@ def get_forecast(
     }
 ```
 
-## Grammars
+## Grammar
 Each component in a pattern file can optionally have a grammar. Grammars are created to ensure that the LLM generates a valid response and provide it with some examples, as can be seen in [weather.yaml](weather.yaml). PBQA uses [GBNF grammars](https://github.com/ggerganov/llama.cpp/tree/master/grammars#gbnf-guide) to dictate the structure of a given pattern component. Take the `latitude` component for instance:
 
 ```gbnf

@@ -1,7 +1,7 @@
 <h1 align="center">Pattern Based Question and Answer</h1>
 
 ## Description
-Pattern Based Question and Answer (PBQA) is a Python library that provides tools for querying LLMs and managing text embeddings. It combines [guided generation](examples/README.md#grammars) with [multi-shot prompting](https://arxiv.org/abs/2005.14165) to improve response quality and ensure consistency. By enforcing valid responses from LLMs, PBQA makes it easy to combine the flexibility of LLMs with the reliability and control of symbolic approaches.
+Pattern Based Question and Answer (PBQA) is a Python library that provides tools for querying LLMs and managing text embeddings. It combines [guided generation](examples/README.md#grammar) with [multi-shot prompting](https://arxiv.org/abs/2005.14165) to improve response quality and ensure consistency. By enforcing valid responses from LLMs, PBQA makes it easy to combine the flexibility of LLMs with the reliability and control of symbolic approaches.
 
  - [Installation](#installation)
  - [Getting Started](#getting-started)
