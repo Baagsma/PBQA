@@ -90,14 +90,14 @@ while True:
 
 The `n_hist` parameter is used to specify the number of previous interactions to consider when generating a response. The history will always consist of `n_hist` entries in the database, ordered chronologically by the `time_added` field (optional argument in `db.add()`). This can be useful for maintaining context in a conversation.
 
+After the response is generated, the exchange is added to the database for future reference.
+
 By default, the DB has a "collection" for each pattern that was loaded. And when unspecified, the default collection from which the history is retrieved when queried, is the pattern name. This can be overridden by specifying the `history_name` parameter in the `llm.ask()` method.
 
-Since the exchange is stored after each interaction, it will persists across sessions. 
-
-_[Note.]()_ The use of `n_hist` in conjunction with `n_examples` has not been properly tested yet. Using both parameters may lead to unexpected behavior.
+_[Note.](#examples-and-history)_ The use of `n_hist` in conjunction with `n_examples` has not been properly tested yet. Using both parameters may lead to unexpected behavior.
 
 # Function Calling
-Another common usecase for LLMs is function calling. While PBQA doesn't call functions directly, using patterns, it is easy to create valid (json) objects to be used as input for tools. By combining patterns, it is easy to create an agent that can navigate a symbolic systems.
+Another common usecase for LLMSs is function calling. While PBQA doesn't call functions directly, using patterns, it is easy to create valid (json) objects to be used as input for tools. By combining patterns, it is easy to create an agent that can navigate a symbolic systems.
 
 ## Tool
 The method `get_forecast` below uses the [Open-Meteo API](https://open-meteo.com/) to get a forecast for a given location and time. The function takes a latitude, longitude, and time as input and returns a forecast object.
@@ -255,3 +255,9 @@ In this case, the unit of measurement is added to the temperature and precipitat
 
 # Feedback
 Explanation about n_examples 
+
+## Examples
+The `n_examples` parameter is used to specify the number of examples to consider when generating a response. The examples will always consist of `n_examples` entries in the database, ordered by semantic similarity to the input query. Additional keyword arguments can be passed to the `llm.ask()` method to further filter the examples.
+
+### Examples and History
+Although using both `n_examples` and `n_hist` in a query should lead to a valid call. The way the entries are formatted currently makes no distinction between examples and history, the history merely being appended after the examples. This may lead to unexpected behavior and poorer response quality when using both parameters.
