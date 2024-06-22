@@ -238,7 +238,9 @@ As defined by the [answer_json.yaml](answer_json.yaml) pattern file, the LLM gen
 
 Regarding the weather query, note that the properties are based on both the input and the examples provided in the pattern file. While the input did not specify a location, the LLM defaulted to London's latitude and longitude. This is because the examples in the [pattern](weather.yaml) use the coordinates of London whenever no specific location is mentioned.
 
-This concept becomes more powerful when new examples are stored in the database, allowing the LLM to [learn](#feedback) from past interactions and provide more accurate responses in the future.
+This concept becomes more powerful when new examples are stored in the database, allowing the LLM to "[learn](#example-based-learning)" from past interactions and provide more accurate responses in the future.
+
+By linking together patterns to interpret and manipulate data, the LLM can be used to dynamically set goals and navigate between tasks, or even break down problems recursively. This can be used to create (semi-)autonomous agents that can interact with other systems or users.
 
 ### Formatting
 Before passing the forecast object to the LLM, the data from the Open-Meteo API is formatted into a more LLM-friendly json object. This is done to prevent misinterpretation of the data by the LLM as much as possible.
@@ -254,7 +256,7 @@ Before passing the forecast object to the LLM, the data from the Open-Meteo API 
 
 In this case, the unit of measurement is added to the temperature and precipitation values, a percentage sign is added to the precipitation probability, and the cloud cover is explicitly expressed as a coverage percentage (as opposed to probability). Each model will have its own preferences for how data is formatted, down to whitespaces and punctuation. As such, it may be valuable to test different formatting strategies to see which one works best for a given model.
 
-# Feedback
+# Example Based Learning
 The examples in the pattern file are included as part of every query to the LLM, unless `include_base_examples` is set to `False` in the `llm.ask()` method. Since caching is enabled by default, the increased prompt processing time for these examples only occurs once per pattern (per model). In addition to these base examples, more examples can also be added later for the LLM to learn from.
 
 Take the following example:
@@ -387,3 +389,6 @@ llm.ask(
 Now, the LLM will only receive examples tagged as feedback, which can be useful for providing specific examples to the LLM. Note that since `feedback` is not defined in the pattern file as a component, it will not be included in the response.
 
 Besides queries to the LLM, filters are also used to retrieve examples from the database. The `db.query()` method is used to retrieve entries from the database based on the semantic similarity to the provided `input`. The `db.where()` method is used to retrieve entries based on the provided filters. Both methods use the same filtering syntax as the `llm.ask()` method, being passed as keyword arguments.
+
+## Feedback
+Since every query benefits from additional examples, setting up a system to process feedback may be an effective way to dynamically improve the LLM's responses. To that end, patterns can be created to classify and parse feedback, or even to have the LLM generate feedback for itself.
