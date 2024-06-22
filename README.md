@@ -94,7 +94,7 @@ examples:  # Lastly, examples can be provided for multi-shot prompting
   ...
 ```
 
-For more examples, look at the pattern files in the [examples](examples) directory. For more information on GBNF grammars, see the [this page](https://github.com/ggerganov/llama.cpp/tree/master/grammars#gbnf-guide).
+For more examples, look at the pattern files in the [examples](examples/README.md#patterns) directory. For more information on GBNF grammars, see the [this page](https://github.com/ggerganov/llama.cpp/tree/master/grammars#gbnf-guide).
 
 ### Cache
 Unless overridden, a queries with the same pattern will use the same system prompt and base examples, allowing a large part of the response to be cached. This can be disabled by setting `use_cache=False` in the `ask()` method.
