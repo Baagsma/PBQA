@@ -318,6 +318,9 @@ When the number of components in a query is only one for either the user or the 
 
 The `n_examples` parameter is used to specify the number of examples that are provided to the LLM in addition to the base examples. The examples are always ordered by semantic similarity to the input query, with the most relevant example being the last one. Additional keyword arguments can be passed to the `llm.ask()` method to further [filter](#filtering) the examples.
 
+### Feedback
+Since every query benefits from additional examples, setting up a system to process feedback may be an effective way to dynamically improve the LLM's responses. To that end, patterns can be created to classify and parse feedback, or even to have the LLM generate feedback for itself. After some time, the database could then be exported and used to fine-tune a model for the relevant tasks, speeding up inference and improving response quality.
+
 ### Examples and History Caveat
 While using both `n_examples` and `n_hist` at once in a query should lead to a valid call, using both parameters is not recommended. The way the entries are currently formatted makes no distinction between examples and history, the history merely being appended after the examples. This may lead to unexpected behavior and poorer response quality. This is a known issue that will be addressed in a future update.
 
@@ -389,6 +392,3 @@ llm.ask(
 Now, the LLM will only receive examples tagged as feedback, which can be useful for providing specific examples to the LLM. Note that since `feedback` is not defined in the pattern file as a component, it will not be included in the response.
 
 Besides queries to the LLM, filters are also used to retrieve examples from the database. The `db.query()` method is used to retrieve entries from the database based on the semantic similarity to the provided `input`. The `db.where()` method is used to retrieve entries based on the provided filters. Both methods use the same filtering syntax as the `llm.ask()` method, being passed as keyword arguments.
-
-## Feedback
-Since every query benefits from additional examples, setting up a system to process feedback may be an effective way to dynamically improve the LLM's responses. To that end, patterns can be created to classify and parse feedback, or even to have the LLM generate feedback for itself. After some time, the database may then be exported and used to fine-tune a model for the relevant tasks, speeding up inference and improving response quality.
