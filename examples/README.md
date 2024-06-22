@@ -31,10 +31,10 @@ examples:
 
 Components in a pattern file can have the following metadata:
 
-- `external`: Specifies whether the component requires external data. If `true`, the component will be passed as an argument to the `llm.ask()` method.
+- `external`: Specifies whether the component requires external data. If `true`, the data for the component must be provided in the `external` dictionary when querying the LLM.
 - `grammar`: A [grammar](#grammar) that defines the structure of the component.
 
-Besides components, a pattern file may also contain a system prompt. The system prompt is an optional instruction given to the LLM to guide its response. It may alternatively be passed as an argument to the `llm.ask()` method, or left out entirely.
+Besides components, a pattern file may also contain a system prompt. The system prompt is an optional instruction given to the LLM to guide its response. It may alternatively be passed as an argument to the `llm.ask()` method or left out entirely.
 
 Lastly, examples may be provided in the pattern file for [multi-shot prompting](https://arxiv.org/abs/2005.14165) to improve the quality of the LLM's responses.
 
@@ -94,12 +94,12 @@ The `n_hist` parameter is used to specify the number of previous interactions to
 
 After the response is generated, the exchange is added to the database for future reference.
 
-By default, the DB has a "collection" for each pattern that was loaded. And when unspecified, the default collection from which the history is retrieved when queried, is the pattern name. This can be overridden by specifying the `history_name` parameter in the `llm.ask()` method.
+By default, the database has a "collection" for each pattern that was loaded. And when unspecified, the default collection from which the history is retrieved when queried, is the pattern name. This can be overridden by specifying the `history_name` parameter in the `llm.ask()` method.
 
 _[Note.](#examples-and-history)_ The use of `n_hist` in conjunction with `n_examples` has not been properly tested yet. Using both parameters may lead to unexpected behavior.
 
 # Function Calling
-Another common usecase for LLMSs is function calling. While PBQA doesn't call functions directly, using patterns, it is easy to create valid (json) objects to be used as input for tools. By combining patterns, it is easy to create an agent that can navigate a symbolic systems.
+Another common usecase for LLMs is function calling. While PBQA doesn't call functions directly, using patterns, it is easy to create valid (json) objects to be used as input for tools. By combining patterns, it is possible to create an agent capable of navigating symbolic systems.
 
 ## Tool
 The method `get_forecast` below uses the [Open-Meteo API](https://open-meteo.com/) to get a forecast for a given location and time. The function takes a latitude, longitude, and time as input and returns a forecast object.
@@ -163,7 +163,7 @@ llm.connect_model(
 )
 ```
 
-Creating a class akin to an 'Agent' can be useful for structuring sets of queries or patterns that are designed to accomplish specific tasks.
+Creating a class akin to an 'Agent' may be useful for structuring sets of queries or patterns that are designed to accomplish specific tasks.
 
 ```py
 from json import dumps
@@ -236,11 +236,11 @@ This forecast object is then [formatted](#formatting), dumped into a json string
 
 As defined by the [answer_json.yaml](answer_json.yaml) pattern file, the LLM generates a response with both a `thought` and `answer` component. The preceding `thought` component allows the LLM to [think](https://arxiv.org/abs/2201.11903) about the provided data before giving a final answer to improve the quality of the response.
 
-Regarding the weather query, note that the properties are based on both the input and the examples provided in the pattern file. While the input did not specify a location, the LLM defaulted to London's latitude and longitude. This is because the examples in the [pattern](weather.yaml) use the coordinates of London whenever no specific location is mentioned.
+Regarding the weather query, note that the properties are based on both the input and the examples provided in the pattern file. While the input did not specify a location, the LLM defaulted to London's latitude and longitude. This is because the examples in the [pattern](weather.yaml) use the coordinates of London whenever no specific location is mentioned. As such, the LLM decided to do the same in this case.
 
 This concept becomes more powerful when new examples are stored in the database, allowing the LLM to "[learn](#example-based-learning)" from past interactions and provide more accurate responses in the future.
 
-By linking together patterns to interpret and manipulate data, the LLM can be used to dynamically set goals and navigate between tasks, or even break down problems recursively. This can be used to create (semi-)autonomous agents that can interact with other systems or users.
+By linking together patterns to interpret and manipulate data, an LLM can be used to dynamically set goals and navigate between tasks, or even break down problems recursively. This can be used to create (semi-)autonomous agents that can interact with other systems or users.
 
 ### Formatting
 Before passing the forecast object to the LLM, the data from the Open-Meteo API is formatted into a more LLM-friendly json object. This is done to prevent misinterpretation of the data by the LLM as much as possible.
@@ -307,12 +307,12 @@ When the LLM is now queried with the same input as before, its answer is differe
 Based on the new example, the LLM has learned to associate "home" with Paris. Though this is a simple example, the same principle can be applied to more complex queries and patterns. By providing the LLM with more examples, it can learn to generate more accurate responses over time.
 
 ### Repetition Caveat
-In the example above, the question in the example was different from the one in the query. This is since, in the current implementation, the most relevant example is the last example provided in the prompt. The repetition penalty of the LLM inhibits the LLM from repeating the same text. This leads the LLM to avoid answering the query in the same way as the example, causing it to generate a different response from the most relevant example. Sadly, the problem cannot be solved by simply lowering the `repeat_penalty`, though it can be helped by increasing the amount of examples provided to the LLM.
+In the example above, the question in the example was different from the one in the query. This is since, in the current implementation, the most relevant example is the last example provided in the prompt. The repetition penalty of an LLM biases it against repeating the same text twice. This leads the LLM to avoid answering the query in the same way as the example, causing it to generate a different response. Sadly, the problem cannot be solved by simply lowering the `repeat_penalty`, though it can be remedied by increasing the amount of examples provided to the LLM.
 
 This is a known issue that will be addressed a future update.
 
 ## Examples
-The examples retrieved from the database are formatted into messages between the user and the LLM. The user's input is always the first message consisting of the input and any external components. The LLM's response is the second message, consisting of the remaining components.
+During a query, the examples retrieved from the database are formatted into messages between the user and the LLM. The user's input is always the first message consisting of the input and any external components. The LLM's response is the second message, consisting of the remaining components.
 
 When the number of components in a query is only one for either the user or the LLM, their respective message consists of only that component. If there are multiple components, the message is formatted into a json object.
 
@@ -391,4 +391,4 @@ Now, the LLM will only receive examples tagged as feedback, which can be useful 
 Besides queries to the LLM, filters are also used to retrieve examples from the database. The `db.query()` method is used to retrieve entries from the database based on the semantic similarity to the provided `input`. The `db.where()` method is used to retrieve entries based on the provided filters. Both methods use the same filtering syntax as the `llm.ask()` method, being passed as keyword arguments.
 
 ## Feedback
-Since every query benefits from additional examples, setting up a system to process feedback may be an effective way to dynamically improve the LLM's responses. To that end, patterns can be created to classify and parse feedback, or even to have the LLM generate feedback for itself.
+Since every query benefits from additional examples, setting up a system to process feedback may be an effective way to dynamically improve the LLM's responses. To that end, patterns can be created to classify and parse feedback, or even to have the LLM generate feedback for itself. After some time, the database may then be exported and used to fine-tune a model for the relevant tasks, speeding up inference and improving response quality.
