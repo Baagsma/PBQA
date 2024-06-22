@@ -255,8 +255,6 @@ Before passing the forecast object to the LLM, the data from the Open-Meteo API 
 In this case, the unit of measurement is added to the temperature and precipitation values, a percentage sign is added to the precipitation probability, and the cloud cover is explicitly expressed as a coverage percentage (as opposed to probability). Each model will have its own preferences for how data is formatted, down to whitespaces and punctuation. As such, it may be valuable to test different formatting strategies to see which one works best for a given model.
 
 # Feedback
-<!-- Explanation about n_examples -->
-
 The examples in the pattern file are included as part of every query to the LLM, unless `include_base_examples` is set to `False` in the `llm.ask()` method. Since caching is enabled by default, the increased prompt processing time for these examples only occurs once per pattern (per model). In addition to these base examples, more examples can also be added later for the LLM to learn from.
 
 Take the following example:
@@ -281,7 +279,7 @@ Based on the base examples in the pattern file, the LLM generates something akin
 }
 ```
 
-Ignoring the time component, the latitude and longitude are based on the examples in the pattern file, in this case representing London. Providing the LLM with another example, however, can alter its response.
+Ignoring the time component, the latitude and longitude are based on the examples in the pattern file, in this case representing London. Providing the LLM with another example  however, alters its response.
 
 ```py
 db.add(
@@ -294,7 +292,7 @@ db.add(
 )
 ```
 
-When the LLM is now queried with the same input as before, the response is different:
+When the LLM is now queried with the same input as before, its answer is different:
 
 ```json
 {
@@ -306,7 +304,7 @@ When the LLM is now queried with the same input as before, the response is diffe
 
 Based on the new example, the LLM has learned to associate "home" with Paris. Though this is a simple example, the same principle can be applied to more complex queries and patterns. By providing the LLM with more examples, it can learn to generate more accurate responses over time.
 
-### Caveat
+### Repetition Caveat
 In the example above, the question in the example was different from the one in the query. This is since, in the current implementation, the most relevant example is the last example provided in the prompt. The repetition penalty of the LLM inhibits the LLM from repeating the same text. This leads the LLM to avoid answering the query in the same way as the example, causing it to generate a different response from the most relevant example. Sadly, the problem cannot be solved by simply lowering the `repeat_penalty`, though it can be helped by increasing the amount of examples provided to the LLM.
 
 This is a known issue that will be addressed a future update.
@@ -317,6 +315,9 @@ The examples retrieved from the database are formatted into messages between the
 When the number of components in a query is only one for either the user or the LLM, their respective message consists of only that component. If there are multiple components, the message is formatted into a json object.
 
 The `n_examples` parameter is used to specify the number of examples that are provided to the LLM in addition to the base examples. The examples are always ordered by semantic similarity to the input query, with the most relevant example being the last one. Additional keyword arguments can be passed to the `llm.ask()` method to further [filter](#filtering) the examples.
+
+### Examples and History Caveat
+While using both `n_examples` and `n_hist` at once in a query should lead to a valid call, using both parameters is not recommended. The way the entries are currently formatted makes no distinction between examples and history, the history merely being appended after the examples. This may lead to unexpected behavior and poorer response quality. This is a known issue that will be addressed in a future update.
 
 ## Filtering
 Any additional keyword arguments passed to the `llm.ask()` method are used to filter the examples provided to the LLM. 
@@ -331,16 +332,16 @@ To filter on metadata, supply the metadata field and its desired value directly 
 
 Metadata filtering supports the following operators:
 
-- `$eq` - equal to (string, int, float)
-- `$ne` - not equal to (string, int, float)
-- `$gt` - greater than (int, float)
-- `$gte` - greater than or equal to (int, float)
-- `$lt` - less than (int, float)
-- `$lte` - less than or equal to (int, float)
+- `eq` - equal to (string, int, float)
+- `ne` - not equal to (string, int, float)
+- `gt` - greater than (int, float)
+- `gte` - greater than or equal to (int, float)
+- `lt` - less than (int, float)
+- `lte` - less than or equal to (int, float)
 
 Note that metadata filters only search embeddings where the key exists. If a key is not present in the metadata, it will not be returned.
 
-If no operator is specified, the default is `$eq`, allowing for simple equality checks. Alternatively, `$and` and `$or` can be used and nested to create more complex queries.
+If no operator is specified, the default is `eq`, allowing for simple equality checks. Alternatively, `_and` and `_or` can be used and nested to create more complex queries.
 
 ```py
 llm.ask(
@@ -349,14 +350,14 @@ llm.ask(
     model="llama",
     external={"now": strftime("%Y-%m-%d %H:%M")},
     n_example=1,
-    _or= [
-            {"latitude": {"gt": 50}},
-            {"longitude": {"lt": 0}},
-        ]
+    _or=[
+        {"feedback": True},
+        {"latitude": {"lt": 50}},
+    ],
 )
 ```
 
-An example usecase may be to filter for examples specifically tagged as feedback. This can be done by adding a `feedback` key to a given example before adding it to the database.
+An example usecase is to filter for examples specifically tagged as feedback. This can be done by adding a `feedback` key to a given example before adding it to the database.
 
 ```py
 db.add(
@@ -385,5 +386,4 @@ llm.ask(
 
 Now, the LLM will only receive examples tagged as feedback, which can be useful for providing specific examples to the LLM. Note that since `feedback` is not defined in the pattern file as a component, it will not be included in the response.
 
-### Examples and History
-While using both `n_examples` and `n_hist` in a query should lead to a valid call, using both parameters is not recommended. The way the entries are currently formatted makes no distinction between examples and history, the history merely being appended after the examples. This may lead to unexpected behavior and poorer response quality when using both parameters. This is a known issue that will be addressed in a future update.
+Besides queries to the LLM, filters are also used to retrieve examples from the database. The `db.query()` method is used to retrieve entries from the database based on the semantic similarity to the provided `input`. The `db.where()` method is used to retrieve entries based on the provided filters. Both methods use the same filtering syntax as the `llm.ask()` method, being passed as keyword arguments.

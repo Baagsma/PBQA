@@ -20,7 +20,6 @@ initial_response = llm.ask(
     model="llama",
     external={"now": strftime("%Y-%m-%d %H:%M")},
     n_example=1,
-    time={"gt": strftime("%Y-%m-%d %H:%M")},
 )
 
 print(f"Initial response:\n{dumps(initial_response, indent=4)}\n")

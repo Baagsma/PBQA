@@ -294,7 +294,6 @@ class DB:
         input: str = "",
         n: int = DEFAULT_RESULT_COUNT,
         min_d: Union[int, None] = None,
-        where: dict = None,
         **kwargs,
     ) -> List[dict]:
         """
@@ -310,26 +309,25 @@ class DB:
 
         Metadata filtering supports the following operators:
 
-        - `$eq` - equal to (string, int, float)
-        - `$ne` - not equal to (string, int, float)
-        - `$gt` - greater than (int, float)
-        - `$gte` - greater than or equal to (int, float)
-        - `$lt` - less than (int, float)
-        - `$lte` - less than or equal to (int, float)
+        - `eq` - equal to (string, int, float)
+        - `ne` - not equal to (string, int, float)
+        - `gt` - greater than (int, float)
+        - `gte` - greater than or equal to (int, float)
+        - `lt` - less than (int, float)
+        - `lte` - less than or equal to (int, float)
 
         Note that metadata filters only search embeddings where the key exists. If a key is not present in the metadata, it will not be returned.
 
-        To filter on document contents, supply a `where_document` filter dictionary to the query. We support two filtering keys: `$contains` and `$not_contains`.
+        To filter on document contents, supply a `where_document` filter dictionary to the query. We support two filtering keys: `contains` and `not_contains`.
 
-        You can also use the logical operators `$and` and `$or` to combine multiple filters, and the inclusion operators `$in` and `$nin` to filter based on whether a value is in or not in a predefined list.
+        You can also use the logical operators `_and` and `_or` to combine multiple filters, and the inclusion operators `in` and `nin` to filter based on whether a value is in or not in a predefined list.
 
         Parameters:
         - collection_name (str): The name of the collection to query.
         - input (str): The input to match.
         - n (int, optional): The number of results to return. Defaults to DEFAULT_RESULT_COUNT.
         - min_d (Union[int, None], optional): The maximum distance for a document to be considered a match. If None, no maximum distance is used.
-        - where (List[str], optional): A list of document content filters. Defaults to None.
-        - **kwargs: Additional keyword arguments to pass as metadata filters.
+        - where (dict, optional): A dictionary of metadata filters to apply. Defaults to None.
 
         Returns:
         - List[dict]: A list of dictionaries, each representing a matching document. Each dictionary contains the document's input, id, distance from the query input, and metadata.
@@ -348,7 +346,7 @@ class DB:
         elif n < 1:
             return []
 
-        query_filter = self.filter_to_qdrant_filter(where)
+        query_filter = self.filter_to_qdrant_filter(kwargs)
 
         docs = self.client.search(
             collection_name=collection_name,
@@ -392,12 +390,12 @@ class DB:
 
         Metadata filtering supports the following operators:
 
-        - `$eq` - equal to (string, int, float)
-        - `$ne` - not equal to (string, int, float)
-        - `$gt` - greater than (int, float)
-        - `$gte` - greater than or equal to (int, float)
-        - `$lt` - less than (int, float)
-        - `$lte` - less than or equal to (int, float)
+        - `eq` - equal to (string, int, float)
+        - `ne` - not equal to (string, int, float)
+        - `gt` - greater than (int, float)
+        - `gte` - greater than or equal to (int, float)
+        - `lt` - less than (int, float)
+        - `lte` - less than or equal to (int, float)
 
         Note that metadata filters only search embeddings where the key exists. If a key is not present in the metadata, it will not be returned.
 
@@ -425,9 +423,9 @@ class DB:
             return []
 
         if start:
-            kwargs["time_added"] = {"$gte": start}
+            kwargs["time_added"] = {"gte": start}
         if end:
-            kwargs["time_added"] = {"$lte": end}
+            kwargs["time_added"] = {"lte": end}
 
         scroll_filter = self.filter_to_qdrant_filter(kwargs)
 
@@ -482,38 +480,41 @@ class DB:
 
     @staticmethod
     def filter_to_qdrant_filter(filter: dict) -> models.Filter:
+        if not filter:
+            return None
+
         def process_filter(key, value):
             if isinstance(value, dict):
                 operator, operand = list(value.items())[0]
             else:
-                operator, operand = "$eq", value
+                operator, operand = "eq", value
 
             if is_valid_date(operand):
                 range = models.DatetimeRange()
             else:
                 range = models.Range()
 
-            if key == "$and":
+            if key == "_and":
                 if not isinstance(operand, List):
                     raise ValueError(
-                        f"Invalid operand {operand} for operator $and. Should be a list."
+                        f"Invalid operand {operand} for operator _and. Should be a list."
                     )
                 return models.Filter(
                     must=[process_filter(*list(item.items())[0]) for item in operand]
                 )
-            elif key == "$or":
+            elif key == "_or":
                 if not isinstance(operand, List):
                     raise ValueError(
-                        f"Invalid operand {operand} for operator $or. Should be a list."
+                        f"Invalid operand {operand} for operator _or. Should be a list."
                     )
                 return models.Filter(
                     should=[process_filter(*list(item.items())[0]) for item in operand]
                 )
-            elif operator == "$eq":
+            elif operator == "eq":
                 return models.FieldCondition(
                     key=key, match=models.MatchValue(value=operand)
                 )
-            elif operator == "$ne":
+            elif operator == "ne":
                 return models.Filter(
                     must_not=[
                         models.FieldCondition(
@@ -521,30 +522,30 @@ class DB:
                         )
                     ]
                 )
-            elif operator == "$gt":
+            elif operator == "gt":
                 range.gt = operand
                 return models.FieldCondition(key=key, range=range)
-            elif operator == "$gte":
+            elif operator == "gte":
                 range.gte = operand
                 return models.FieldCondition(key=key, range=range)
-            elif operator == "$lt":
+            elif operator == "lt":
                 range.lt = operand
                 return models.FieldCondition(key=key, range=range)
-            elif operator == "$lte":
+            elif operator == "lte":
                 range.lte = operand
                 return models.FieldCondition(key=key, range=range)
-            elif operator == "$in":
+            elif operator == "in":
                 if not isinstance(operand, list):
                     raise ValueError(
-                        f"Invalid operand {operand} for operator $in. Should be a list."
+                        f"Invalid operand {operand} for operator in. Should be a list."
                     )
                 return models.FieldCondition(
                     key=key, match=models.MatchAny(any=operand)
                 )
-            elif operator == "$nin":
+            elif operator == "nin":
                 if not isinstance(operand, list):
                     raise ValueError(
-                        f"Invalid operand {operand} for operator $nin. Should be a list."
+                        f"Invalid operand {operand} for operator nin. Should be a list."
                     )
                 return models.FieldCondition(
                     key=key, match=models.MatchExcept(**{"except": operand})
@@ -552,21 +553,18 @@ class DB:
             else:
                 raise ValueError(f"Invalid operator {operator}")
 
-        if not filter:
-            return None
-
         must = []
         should = []
         for key, value in filter.items():
-            if key in ["$and", "$or"]:
+            if key in ["_and", "_or"]:
                 if not isinstance(value, list):
                     raise ValueError(
                         f"Invalid value {value} for operator {key}. Should be a list."
                     )
                 for item in value:
-                    if key == "$and":
+                    if key == "_and":
                         must.append(process_filter(*list(item.items())[0]))
-                    elif key == "$or":
+                    elif key == "_or":
                         should.append(process_filter(*list(item.items())[0]))
             else:
                 must.append(process_filter(key, value))

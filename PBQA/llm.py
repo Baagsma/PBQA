@@ -361,7 +361,7 @@ class LLM:
             base_examples = self.db.where(
                 collection_name=pattern,
                 n=n_base_example,
-                base_example={"$eq": True},
+                base_example={"eq": True},
             )
 
             messages += format(base_examples)
@@ -373,20 +373,20 @@ class LLM:
             ]
 
             component_filter = (
-                {"$or": [{comp: {"$ne": 0}} for comp in components]}
+                {"_or": [{comp: {"ne": 0}} for comp in components]}
                 if len(components) > 1
-                else {components[0]: {"$ne": 0}}
+                else {components[0]: {"ne": 0}}
             )  # Ensure that at least one component from the pattern is present in the example response
 
             where_filter = {
-                "$and": [
+                "_and": [
                     component_filter,
-                    {"base_example": {"$ne": True}},
+                    {"base_example": {"ne": True}},
                 ]
             }
 
             if kwargs:
-                where_filter["$and"].append(kwargs)
+                where_filter["_and"].append(kwargs)
 
             examples = self.db.query(
                 pattern,
@@ -404,7 +404,7 @@ class LLM:
                 start=time() - hist_duration,
                 end=time(),
                 n=n_hist,
-                base_example={"$ne": True},
+                base_example={"ne": True},
             )  # TODO: If len(hist) == n_hist, remove n oldest responses
 
         input_response = {
