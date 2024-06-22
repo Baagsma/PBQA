@@ -40,7 +40,7 @@ class Agent:
             input=input,
             pattern="weather",
             model="llama",
-            external={"now": "2024-06-22 22:00"},  # strftime("%Y-%m-%d %H:%M")},
+            external={"now": strftime("%Y-%m-%d %H:%M")},
         )
 
         print(f"Query:\n{dumps(weather_query, indent=4)}\n")

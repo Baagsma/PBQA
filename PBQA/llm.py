@@ -21,6 +21,7 @@ class LLM:
         self,
         db: DB,
         host: str = None,
+        log_level: int = logging.WARN,
     ):
         """
         Initialize the LLM (Language Learning Model.
@@ -31,6 +32,8 @@ class LLM:
         - db (DB): The database to use for storing and retrieving examples.
         - host (str): The host of the LLM server. Can also be passed when connecting model servers.
         """
+
+        logging.basicConfig(level=log_level)
 
         self.db = db
 
@@ -64,6 +67,7 @@ class LLM:
         - top_p (float): The top probability to use for generating responses.
         - max_tokens (int): The maximum number of tokens to use for generating responses.
         - stop (List[str]): Strings to stop the response generation.
+        - kwargs: Additional default parameters to pass when querying the LLM server.
 
         Returns:
         - dict[str, str]: The model components.
@@ -89,6 +93,7 @@ class LLM:
             "top_p": top_p,
             "max_tokens": max_tokens,
             "stop": stop if stop else [],
+            **kwargs,
         }
 
         return self.models[model]
@@ -188,14 +193,12 @@ class LLM:
         model_defaults = self.models[model]
 
         parameters = {
-            "host": model_defaults["host"],
-            "port": model_defaults["port"],
-            "stop": model_defaults["stop"],
-            "temperature": model_defaults["temperature"],
-            "min_p": model_defaults["min_p"],
-            "top_p": model_defaults["top_p"],
+            **model_defaults,
             **kwargs,  # This will override the defaults if any of these keys are present in kwargs
         }
+        parameters["stop"] = model_defaults["stop"] + stop
+
+        log.info(f"Request:\n{yaml.dump(parameters, default_flow_style=False)}")
 
         data = {
             "model": model,
@@ -206,11 +209,7 @@ class LLM:
             "cache_prompt": use_cache,
             "messages": messages,
             "grammar": grammar,
-            "stop": parameters["stop"] + stop,
-            "temperature": parameters["temperature"],
-            "min_p": parameters["min_p"],
-            "top_p": parameters["top_p"],
-            "max_tokens": model_defaults["max_tokens"],
+            **parameters,
         }
 
         url = f"http://{parameters['host']}:{parameters['port']}/v1/chat/completions"

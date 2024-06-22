@@ -25,6 +25,7 @@ class DB:
         path: str,
         encoder: str = DEFAULT_ENCODER,
         reset: bool = False,
+        log_level: int = logging.WARN,
     ):
         """
         Initialize the DB client.
@@ -34,6 +35,8 @@ class DB:
         - encoder (str): The name of the SentenceTransformer model to use for encoding documents.
         - reset (bool, optional): Whether to reset the database. Defaults to False.
         """
+
+        logging.basicConfig(level=log_level)
 
         if not path:
             raise FileNotFoundError("No path provided for the database.")

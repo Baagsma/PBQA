@@ -104,13 +104,14 @@ _Note:_ To cache the patterns, PBQA will try allocate a slot/process for each pa
 ## Roadmap
 Future features in no particular order with no particular timeline:
 
+ - Preset grammars for common data types
+ - Option to pick a specific caching slot for a query
  - Option to use self-hosted Qdrant server
- - Support for more LLM backends
- - Combining multi-shot prompting with message history
  - Parallel query execution
+ - Combining multi-shot prompting with message history
  - Multimodal support
  - Further speed improvements (possibly [batching](https://github.com/guidance-ai/guidance?tab=readme-ov-file#guidance-acceleration))
- - Option to pick a specific slot for a query
+ - Support for more LLM backends
 
 ## Relevant Literature
 
@@ -120,6 +121,9 @@ Future features in no particular order with no particular timeline:
 
 ## Contributing
 Contributions are welcome! If you have any suggestions or would like to contribute, please open an issue or a pull request.
+
+## Support
+If you want to support the development of PBQA, consider [buying me a coffee](https://ko-fi.com/baagsma). Any support is greatly appreciated!
 
 ## License and Acknowledgements
 This project is licensed under the terms of the MIT License. For more details, see the LICENSE file.
