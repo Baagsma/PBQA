@@ -329,7 +329,7 @@ Any additional keyword arguments passed to the `llm.ask()` method are used to fi
 
 To filter on metadata, supply the metadata field and its desired value directly as keyword arguments. For more complex queries, you can use a dictionary with the following structure:
 
-```json
+```py
 {
     operator: value
 }
