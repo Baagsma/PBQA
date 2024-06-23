@@ -262,7 +262,7 @@ The examples in the pattern file are included as part of every query to the LLM,
 Take the following example:
 
 ```py
-initial_response = llm.ask(
+llm.ask(
     input="Is it going to rain tonight at home?",
     pattern="weather",
     model="llama",
