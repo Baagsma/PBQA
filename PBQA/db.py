@@ -173,6 +173,12 @@ class DB:
         else:
             log.info(f"Collection {collection_name} already exists")
 
+    def delete_collection(self, collection_name: str):
+        if collection_name not in self.get_collections():
+            raise ValueError(f"Collection {collection_name} not found")
+
+        self.client.delete_collection(collection_name=collection_name)
+
     def add(
         self,
         input: str,
@@ -405,7 +411,7 @@ class DB:
         - start (float, optional): The start time for the query. Defaults to None.
         - end (float, optional): The end time for the query. Defaults to None.
         - order_by (str, optional): The key to order the results by. Defaults to "time_added".
-        - order_direction (str, optional): The direction to order the results in. Defaults to "desc".
+        - order_direction (str, optional): The direction to order the results in. Must be "asc" or "desc". Defaults to "desc".
         - **kwargs: Additional keyword arguments to pass as metadata filters.
 
         Returns:

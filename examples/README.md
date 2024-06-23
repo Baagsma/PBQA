@@ -51,7 +51,7 @@ reply:
 Though no grammar or examples are provided, the response will still be steered by the system prompt.
 
 ## Setup
-To use patterns, first the vector database must be initialized and the necessary files loaded. After that, the LLM can be connected to the model(s) to be queried.
+To use a pattern, first the vector database must be initialized and the necessary files loaded. After that, the LLM can be connected to the model(s) to be queried.
 
 ```py
 from PBQA import DB, LLM
@@ -94,7 +94,7 @@ The `n_hist` parameter is used to specify the number of previous interactions to
 
 After the response is generated, the exchange is added to the database for future reference.
 
-By default, the database has a "collection" for each pattern that was loaded. And when unspecified, the default collection from which the history is retrieved when queried, is the pattern name. This can be overridden by specifying the `history_name` parameter in the `llm.ask()` method.
+By default, the database has a "collection" for each pattern that was loaded. And when unspecified, the default collection from which the history is retrieved when queried, is the pattern name. This can be overridden by specifying the `history_name` parameter in the `llm.ask()` method. Collections can be created with the `db.create_collection()` method.
 
 _[Note.](#examples-and-history)_ The use of `n_hist` in conjunction with `n_examples` has not been properly tested yet. Using both parameters may lead to unexpected behavior.
 
@@ -307,22 +307,24 @@ When the LLM is now queried with the same input as before, its answer is differe
 Based on the new example, the LLM has learned to associate "home" with Paris. Though this is a simple example, the same principle can be applied to more complex queries and patterns. By providing the LLM with more examples, it can learn to generate more accurate responses over time.
 
 ### Repetition Caveat
-In the example above, the question in the example was different from the one in the query. This is since, in the current implementation, the most relevant example is the last example provided in the prompt. The repetition penalty of an LLM biases it against repeating the same text twice. This leads the LLM to avoid answering the query in the same way as the example, causing it to generate a different response. Sadly, the problem cannot be solved by simply lowering the `repeat_penalty`, though it can be remedied by increasing the amount of examples provided to the LLM.
+In the example above, the question in the example was different from the one in the query. This is since, in the current implementation, the most relevant example is the last example provided in the prompt. The repetition penalty of an LLM biases it against repeating the same text twice. This leads the LLM to avoid answering the query in the same way as the example, causing it to generate a different response. Sadly, the problem cannot be solved by simply lowering the `repeat_penalty`, though it can be remedied by providing more examples to the LLM (usually two is sufficient).
 
 This is a known issue that will be addressed a future update.
 
 ## Examples
 During a query, the examples retrieved from the database are formatted into messages between the user and the LLM. The user's input is always the first message consisting of the input and any external components. The LLM's response is the second message, consisting of the remaining components.
 
-When the number of components in a query is only one for either the user or the LLM, their respective message consists of only that component. If there are multiple components, the message is formatted into a json object.
+When either the user or the LLM has only one component, their message consists of only that component. If there are multiple components, their message is formatted into a json object.
 
 The `n_examples` parameter is used to specify the number of examples that are provided to the LLM in addition to the base examples. The examples are always ordered by semantic similarity to the input query, with the most relevant example being the last one. Additional keyword arguments can be passed to the `llm.ask()` method to further [filter](#filtering) the examples.
 
 ### Feedback
-Since every query benefits from additional examples, setting up a system to process feedback may be an effective way to dynamically improve the LLM's responses. To that end, patterns can be created to classify and parse feedback, or even to have the LLM generate feedback for itself. After some time, the database could then be exported and used to fine-tune a model for the relevant tasks, speeding up inference and improving response quality.
+Since most queries benefit from additional examples, setting up a system to process feedback can be an effective way to improve the LLM's responses over time. To that end, specific patterns can be created to classify and parse feedback, or even to have the LLM generate feedback for itself. After exporting, the feedback-improved examples can then be used to fine-tune the model.
 
 ### Examples and History Caveat
 While using both `n_examples` and `n_hist` at once in a query should lead to a valid call, using both parameters is not recommended. The way the entries are currently formatted makes no distinction between examples and history, the history merely being appended after the examples. This may lead to unexpected behavior and poorer response quality. This is a known issue that will be addressed in a future update.
+
+One way of solving this issue is to manually retrieve the history from the database and pass as an external component to the LLM. This way, the history can be formatted and filtered as needed before being passed to the LLM.
 
 ## Filtering
 Any additional keyword arguments passed to the `llm.ask()` method are used to filter the examples provided to the LLM. 
@@ -392,3 +394,5 @@ llm.ask(
 Now, the LLM will only receive examples tagged as feedback, which can be useful for providing specific examples to the LLM. Note that since `feedback` is not defined in the pattern file as a component, it will not be included in the response.
 
 Besides queries to the LLM, filters are also used to retrieve examples from the database. The `db.query()` method is used to retrieve entries from the database based on the semantic similarity to the provided `input`. The `db.where()` method is used to retrieve entries based on the provided filters. Both methods use the same filtering syntax as the `llm.ask()` method, being passed as keyword arguments.
+
+By default the `db.where()` method returns the entries in the order they were added to the database, with the most recent entry being the last one. Optionally, the `order_by` parameter can be used to specify a different field to order the entries by and the `order_direction` parameter to specify the order direction ("asc" or "desc").
