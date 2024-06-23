@@ -34,7 +34,7 @@ db.add(
     feedback=True,
 )
 
-db.add(  # Since the input is the same as the query,
+db.add(
     input="Is it going to rain tonight at home?",
     collection_name="weather",
     latitude=48.86,
