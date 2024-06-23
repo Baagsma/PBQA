@@ -15,7 +15,7 @@ log = logging.getLogger()
 
 
 class DB:
-    """A wrapper for the ChromaDB client with some added functionality for ease of use."""
+    """A wrapper for the Qdrant client with some added functionality for ease of use."""
 
     DEFAULT_ENCODER = "all-MiniLM-L6-v2"
     DEFAULT_RESULT_COUNT = 5
