@@ -214,7 +214,7 @@ First results in the following query object:
 }
 ```
 
-Then, using the `get_forecast` function, the following forecast object is generated:
+Then, using the `get_forecast` [function](#tool), the following forecast object is generated:
 
 ```json
 {
