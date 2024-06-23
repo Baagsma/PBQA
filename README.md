@@ -56,7 +56,7 @@ weather_query = llm.ask(
     )
 ```
 
-Using the [weather.yaml](examples/weather.yaml) pattern file and [llama3](https://huggingface.co/QuantFactory/Meta-Llama-3-8B-Instruct-GGUF) running on 192.168.0.1:8080, the response should look something like this:
+Using the [weather.yaml](examples/weather.yaml) pattern file and [llama 3](https://huggingface.co/QuantFactory/Meta-Llama-3-8B-Instruct-GGUF) running on 192.168.0.1:8080, the response should look something like this:
 
 ```json
 {
