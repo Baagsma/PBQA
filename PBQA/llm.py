@@ -1,4 +1,5 @@
 import json
+from json import dumps, loads
 import logging
 from time import time
 from typing import List, Union
@@ -20,6 +21,7 @@ class LLM:
         self,
         db: DB,
         host: str = None,
+        log_level: int = logging.WARN,
     ):
         """
         Initialize the LLM (Language Learning Model.
@@ -30,6 +32,8 @@ class LLM:
         - db (DB): The database to use for storing and retrieving examples.
         - host (str): The host of the LLM server. Can also be passed when connecting model servers.
         """
+
+        logging.basicConfig(level=log_level)
 
         self.db = db
 
@@ -63,6 +67,7 @@ class LLM:
         - top_p (float): The top probability to use for generating responses.
         - max_tokens (int): The maximum number of tokens to use for generating responses.
         - stop (List[str]): Strings to stop the response generation.
+        - kwargs: Additional default parameters to pass when querying the LLM server.
 
         Returns:
         - dict[str, str]: The model components.
@@ -88,6 +93,7 @@ class LLM:
             "top_p": top_p,
             "max_tokens": max_tokens,
             "stop": stop if stop else [],
+            **kwargs,
         }
 
         return self.models[model]
@@ -122,6 +128,7 @@ class LLM:
         min_d: float = None,
         use_cache: bool = True,
         grammar: str = None,
+        stop: List[str] = [],
         **kwargs,
     ) -> json:
         """
@@ -143,6 +150,7 @@ class LLM:
         - min_d (float): The minimum distance between the input and the examples.
         - use_cache (bool): Whether to use the cache for the response.
         - grammar (str): The grammar to use for the response.
+        - stop (List[str]): Strings to stop the response generation.
         - kwargs: Additional arguments to pass when querying the database.
 
         Returns:
@@ -185,14 +193,12 @@ class LLM:
         model_defaults = self.models[model]
 
         parameters = {
-            "host": model_defaults["host"],
-            "port": model_defaults["port"],
-            "stop": model_defaults["stop"],
-            "temperature": model_defaults["temperature"],
-            "min_p": model_defaults["min_p"],
-            "top_p": model_defaults["top_p"],
+            **model_defaults,
             **kwargs,  # This will override the defaults if any of these keys are present in kwargs
         }
+        parameters["stop"] = model_defaults["stop"] + stop
+
+        log.info(f"Request:\n{yaml.dump(parameters, default_flow_style=False)}")
 
         data = {
             "model": model,
@@ -203,18 +209,14 @@ class LLM:
             "cache_prompt": use_cache,
             "messages": messages,
             "grammar": grammar,
-            "stop": parameters["stop"],
-            "temperature": parameters["temperature"],
-            "min_p": parameters["min_p"],
-            "top_p": parameters["top_p"],
-            "max_tokens": model_defaults["max_tokens"],
+            **parameters,
         }
 
         url = f"http://{parameters['host']}:{parameters['port']}/v1/chat/completions"
         headers = {"Content-Type": "application/json", "Authorization": "Bearer no-key"}
 
         try:
-            llm_response = requests.post(url, headers=headers, data=json.dumps(data))
+            llm_response = requests.post(url, headers=headers, data=dumps(data))
         except requests.exceptions.RequestException as e:
             raise ValueError(
                 f"Request to LLM failed: {str(e)}\n\nEnsure the llama.cpp server is running (python3 server/run.py)."
@@ -315,9 +317,7 @@ class LLM:
                 else:
                     return {
                         "role": role,
-                        "content": json.dumps(
-                            {comp: response[comp] for comp in components}
-                        ),
+                        "content": dumps({comp: response[comp] for comp in components}),
                     }
 
             formatted_responses = []
@@ -361,31 +361,32 @@ class LLM:
             base_examples = self.db.where(
                 collection_name=pattern,
                 n=n_base_example,
-                base_example={"$eq": True},
+                base_example={"eq": True},
             )
 
             messages += format(base_examples)
 
+        examples = []
         if input:
             components = [
                 comp for comp in metadata["components"] if comp not in exclude
             ]
 
             component_filter = (
-                {"$or": [{comp: {"$ne": 0}} for comp in components]}
+                {"_or": [{comp: {"ne": 0}} for comp in components]}
                 if len(components) > 1
-                else {components[0]: {"$ne": 0}}
+                else {components[0]: {"ne": 0}}
             )  # Ensure that at least one component from the pattern is present in the example response
 
             where_filter = {
-                "$and": [
+                "_and": [
                     component_filter,
-                    {"base_example": {"$ne": True}},
+                    {"base_example": {"ne": True}},
                 ]
             }
 
             if kwargs:
-                where_filter["$and"].append(kwargs)
+                where_filter["_and"].append(kwargs)
 
             examples = self.db.query(
                 pattern,
@@ -403,7 +404,7 @@ class LLM:
                 start=time() - hist_duration,
                 end=time(),
                 n=n_hist,
-                base_example={"$ne": True},
+                base_example={"ne": True},
             )  # TODO: If len(hist) == n_hist, remove n oldest responses
 
         input_response = {
@@ -527,6 +528,7 @@ string ::=
         min_d: float = None,
         use_cache: bool = True,
         grammar: str = None,
+        stop: List[str] = [],
         **kwargs,
     ) -> dict:
         """
@@ -548,6 +550,7 @@ string ::=
         - min_d (float): The minimum distance between the input and the examples.
         - use_cache (bool): Whether to use the cache for the response.
         - grammar (str): The grammar to use for the response.
+        - stop (List[str]): Strings to stop the response generation.
         - kwargs: Additional arguments to pass when querying the database.
 
         Returns:
@@ -584,6 +587,7 @@ string ::=
             min_d=min_d,
             use_cache=use_cache,
             grammar=grammar,
+            stop=stop,
             **kwargs,
         )
 
@@ -597,12 +601,12 @@ string ::=
             )
             == 1
         ):
-            return json.loads(
-                str({component.pop(): answer})
+            return loads(
+                dumps({component.pop(): answer})
             )  # When there is only one component, the model output is a string without a grammar for quality and speed, so the output has to be parsed into a dictionary manually
         else:
             try:
-                return json.loads(answer)
+                return loads(answer)
             except json.JSONDecodeError:
                 raise ValueError(
                     f"Failed to decode JSON answer:\n\t{answer}\n\nMake sure the correct stop strings are configured for the model {model}."
