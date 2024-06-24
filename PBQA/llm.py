@@ -519,6 +519,7 @@ string ::=
         pattern: str,
         model: str,
         external: dict[str, str] = {},
+        return_external: bool = False,
         history_name: str = None,
         system_prompt: str = None,
         include_system_prompt: bool = True,
@@ -541,6 +542,7 @@ string ::=
         - pattern (str): The pattern to use for generating the response.
         - model (str): The model to use for generating the response.
         - external (dict[str, str]): External data to include in the response.
+        - return_external (bool): Whether to return the external data in the response.
         - history_name (str): The name of the history to use for generating the response.
         - system_prompt (str): The system prompt to provide to the LLM.
         - include_system_prompt (bool): Whether to include the system message.
@@ -593,23 +595,25 @@ string ::=
             **kwargs,
         )
 
-        answer = output["choices"][0]["message"]["content"]
+        content = output["choices"][0]["message"]["content"]
 
-        if (
-            len(
-                component := set(metadata["components"])
-                - set(exclude)
-                - set(external.keys())
+        try:
+            response = loads(content)
+        except json.JSONDecodeError:
+            component = (
+                set(metadata["components"]) - set(exclude) - set(external.keys())
             )
-            == 1
-        ):
-            return loads(
-                dumps({component.pop(): answer})
-            )  # When there is only one component, the model output is a string without a grammar for quality and speed, so the output has to be parsed into a dictionary manually
-        else:
-            try:
-                return loads(answer)
-            except json.JSONDecodeError:
+            if len(component) != 1:
                 raise ValueError(
-                    f"Failed to decode JSON answer:\n\t{answer}\n\nMake sure the correct stop strings are configured for the model {model}."
+                    f"Failed to parse response from LLM. Expected one component, got {len(component)}: {component}."
                 )
+
+            response = loads(
+                dumps({component.pop(): content})
+            )  # When there is only one component, the model output is a string without a grammar for quality and speed, so the output has to be parsed into a dictionary manually
+
+        if return_external:
+            for comp in external_components:
+                response[comp] = external[comp]
+
+        return response
