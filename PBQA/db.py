@@ -183,7 +183,7 @@ class DB:
         self,
         input: str,
         collection_name: str,
-        time_added: time = time(),
+        time_added: float = None,
         **kwargs,
     ) -> dict:
         """
@@ -216,6 +216,8 @@ class DB:
 
         # Use the stringify_value function to convert all kwargs values
         kwargs = {k: stringify_value(v) for k, v in kwargs.items()}
+
+        time_added = time_added or time()
 
         doc_id = str(uuid.uuid4())
         self.client.upsert(

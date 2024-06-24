@@ -393,7 +393,7 @@ class LLM:
                 input,
                 n=n_example,
                 min_d=min_d,
-                where=where_filter,
+                **where_filter,
             )
             messages += format(examples)
 
@@ -406,6 +406,8 @@ class LLM:
                 n=n_hist,
                 base_example={"ne": True},
             )  # TODO: If len(hist) == n_hist, remove n oldest responses
+
+            hist.reverse()
 
         input_response = {
             "input": input,
