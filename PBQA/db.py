@@ -201,22 +201,6 @@ class DB:
         - dict: A dictionary representing the added document. The dictionary contains the document's input, id, and metadata.
         """
 
-        def stringify_value(value):
-            """
-            Convert a value to its string representation.
-            Dates are converted to a 'YYYY-MM-DD HH:MM:SS' format.
-            Other types are converted using the str function.
-            """
-            if isinstance(value, datetime):
-                return value.strftime("%Y-%m-%dT%H:%M:%S")
-            elif isinstance(value, int) or isinstance(value, float):
-                return value
-            else:
-                return str(value)
-
-        # Use the stringify_value function to convert all kwargs values
-        kwargs = {k: stringify_value(v) for k, v in kwargs.items()}
-
         time_added = time_added or time()
 
         doc_id = str(uuid.uuid4())
