@@ -34,15 +34,15 @@ db.add(
     feedback=True,
 )
 
-db.add(
-    input="Is it going to rain tonight at home?",
-    collection_name="weather",
-    latitude=48.86,
-    longitude=2.35,
-    now="2021-03-02 14:46",
-    time="2021-03-02 21:00",
-    feedback=True,
-)
+# db.add(
+#     input="Is it going to rain tonight at home?",
+#     collection_name="weather",
+#     latitude=48.86,
+#     longitude=2.35,
+#     now="2021-03-02 14:46",
+#     time="2021-03-02 21:00",
+#     feedback=True,
+# )
 
 feedback_response = llm.ask(
     input="Is it going to rain tonight at home?",
