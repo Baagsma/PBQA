@@ -12,6 +12,7 @@ setup(
     long_description_content_type="text/markdown",
     author="Bart Haagsma",
     author_email="dev.baagsma@gmail.com",
+    url="https://github.com/Baagsma/PBQA",
     packages=find_packages(),
     install_requires=[
         "PyYAML",
