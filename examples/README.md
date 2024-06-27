@@ -60,7 +60,7 @@ from PBQA import DB, LLM
 db = DB(path="examples/db")
 db.load_pattern("examples/conversation.yaml")
 
-llm = LLM(db=db, host="192.168.0.137")
+llm = LLM(db=db, host="127.0.0.1")
 llm.connect_model(
     model="llama",
     port=8080,
@@ -96,7 +96,7 @@ After the response is generated, the exchange is added to the database for futur
 
 By default, the database has a "collection" for each pattern that was loaded. And when unspecified, the default collection from which the history is retrieved when queried, is the pattern name. This can be overridden by specifying the `history_name` parameter in the `llm.ask()` method. Collections can be created with the `db.create_collection()` method.
 
-_[Note.](#examples-and-history)_ The use of `n_hist` in conjunction with `n_examples` has not been properly tested yet. Using both parameters may lead to unexpected behavior.
+_[Note.](#examples-and-history-caveat)_ The use of `n_hist` in conjunction with `n_examples` has not been properly tested yet. Using both parameters may lead to unexpected behavior.
 
 # Function Calling
 Another common usecase for LLMs is function calling. While PBQA doesn't call functions directly, using patterns, it is easy to create valid (json) objects to be used as input for tools. By combining patterns, it is possible to create an agent capable of navigating symbolic systems.
@@ -154,7 +154,7 @@ db = DB(path="examples/db")
 db.load_pattern("examples/weather.yaml")
 db.load_pattern("examples/answer_json.yaml")
 
-llm = LLM(db=db, host="192.168.0.137")
+llm = LLM(db=db, host="127.0.0.1")
 llm.connect_model(
     model="llama",
     port=8080,
