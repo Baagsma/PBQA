@@ -21,7 +21,7 @@ class LLM:
         self,
         db: DB,
         host: str = None,
-        log_level: int = logging.WARN,
+        cache_slots: int = 1,
     ):
         """
         Initialize the LLM (Language Learning Model.
@@ -31,17 +31,16 @@ class LLM:
         Parameters:
         - db (DB): The database to use for storing and retrieving examples.
         - host (str): The host of the LLM server. Can also be passed when connecting model servers.
+        - cache_slots (int): The number of cache slots to use for the LLM.
         """
 
-        logging.basicConfig(level=log_level)
-
         self.db = db
-
         self.host = host
 
-        self.models = {}
-
+        self.cache_slots = cache_slots
         self.cache_ids = {}
+
+        self.models = {}
 
     def connect_model(
         self,
@@ -127,6 +126,7 @@ class LLM:
         n_example: int = 0,
         min_d: float = None,
         use_cache: bool = True,
+        cache_id: int = None,
         grammar: str = None,
         stop: List[str] = [],
         **kwargs,
@@ -149,6 +149,7 @@ class LLM:
         - n_example (int): The number of examples to load from the database.
         - min_d (float): The minimum distance between the input and the examples.
         - use_cache (bool): Whether to use the cache for the response.
+        - cache_id (int): The cache ID to use for the response.
         - grammar (str): The grammar to use for the response.
         - stop (List[str]): Strings to stop the response generation.
         - kwargs: Additional arguments to pass when querying the database.
@@ -202,7 +203,8 @@ class LLM:
 
         data = {
             "model": model,
-            "id_slot": self._get_cache_id(
+            "id_slot": cache_id
+            or self._get_cache_id(
                 pattern,
                 model,
             ),
@@ -506,7 +508,8 @@ string ::=
         moniker = self.get_cache_name(pattern, model)
 
         if moniker not in self.cache_ids:
-            self.cache_ids[moniker] = len(self.cache_ids)
+            # Fill the cache slots in order. If all slots are filled, reuse the last slot
+            self.cache_ids[moniker] = min(len(self.cache_ids), self.cache_slots - 1)
 
         return self.cache_ids[moniker]
 
@@ -530,6 +533,7 @@ string ::=
         n_example: int = 0,
         min_d: float = None,
         use_cache: bool = True,
+        cache_id: int = None,
         grammar: str = None,
         stop: List[str] = [],
         **kwargs,
@@ -553,6 +557,7 @@ string ::=
         - n_example (int): The number of examples to load from the database.
         - min_d (float): The minimum distance between the input and the examples.
         - use_cache (bool): Whether to use the cache for the response.
+        - cache_id (int): The ID of the cache/process slot to use for the response.
         - grammar (str): The grammar to use for the response.
         - stop (List[str]): Strings to stop the response generation.
         - kwargs: Additional arguments to pass when querying the database.
@@ -590,6 +595,7 @@ string ::=
             n_example=n_example,
             min_d=min_d,
             use_cache=use_cache,
+            cache_id=cache_id,
             grammar=grammar,
             stop=stop,
             **kwargs,
