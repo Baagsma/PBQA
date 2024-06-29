@@ -101,7 +101,9 @@ For more examples, look at the pattern files in the [examples](examples/README.m
 ### Cache
 Unless overridden, queries using the same pattern will use the same system prompt and base examples. This allows a large part of the response to be cached, speeding up generation. This can be disabled by setting `use_cache=False` in the `ask()` method.
 
-_Note:_ To cache the patterns, PBQA will try allocate a slot/process for each pattern-model pair in the llama.cpp server. As such, make sure to set `-np` to the amount of unique combinations of patterns and models you want to enable caching for.
+To cache the patterns, PBQA will try allocate a slot/process for each pattern-model pair in the llama.cpp server. As such, make sure to set `-np` to the amount of unique combinations of patterns and models you want to enable caching for. Then when initializing the `LLM()`, set `cache_slots` to the same amount.
+
+The slots are allocated in the order they are requested, filling up the first process before moving on to the next. If the number of slots is exceeded, the last slot is overwritten. Alternatively, set `cache_id` in the `ask()` method to manually pick a slot.
 
 ## Roadmap
 Future features in no particular order with no particular timeline:
