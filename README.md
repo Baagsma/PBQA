@@ -22,7 +22,7 @@ Additionally, PBQA requires a running instance of llama.cpp to interact with LLM
 
 ## Usage
 ### llama.cpp
-For instructions on hosting a model with llama.cpp, see the [following page](https://github.com/ggerganov/llama.cpp/blob/master/examples/server/README.md#quick-start). Optionally, [caching](#cache) can be enabled speed up generation.
+For instructions on hosting a model with llama.cpp, see the [following page](https://github.com/ggerganov/llama.cpp/blob/master/examples/server/README.md#quick-start). Optionally, [caching](#cache) can be enabled to speed up generation.
 
 ### Python
 PBQA provides a simple API for querying LLMs.
@@ -37,7 +37,7 @@ db = DB(path="examples/db")
 db.load_pattern("examples/weather.yaml")
 
 # Next, we connect to the LLM server
-llm = LLM(db=db, host="192.168.0.1")
+llm = LLM(db=db, host="127.0.0.1")
 # And connect to the model
 llm.connect_model(
     model="llama",
@@ -56,7 +56,7 @@ weather_query = llm.ask(
     )
 ```
 
-Using the [weather.yaml](examples/weather.yaml) pattern file and [llama 3](https://huggingface.co/QuantFactory/Meta-Llama-3-8B-Instruct-GGUF) running on 192.168.0.1:8080, the response should look something like this:
+Using the [weather.yaml](examples/weather.yaml) pattern file and [llama 3](https://huggingface.co/QuantFactory/Meta-Llama-3-8B-Instruct-GGUF) running on 127.0.0.1:8080, the response should look something like this:
 
 ```json
 {
@@ -99,7 +99,7 @@ examples:  # Lastly, examples can be provided for multi-shot prompting
 For more examples, look at the pattern files in the [examples](examples/README.md#patterns) directory. Information on the GBNF grammar format can be found [here](https://github.com/ggerganov/llama.cpp/tree/master/grammars#gbnf-guide).
 
 ### Cache
-Unless overridden, queries using the same pattern will use the same system prompt and base examples This allows a large part of the response to be cached, speeding up generation. This can be disabled by setting `use_cache=False` in the `ask()` method.
+Unless overridden, queries using the same pattern will use the same system prompt and base examples. This allows a large part of the response to be cached, speeding up generation. This can be disabled by setting `use_cache=False` in the `ask()` method.
 
 _Note:_ To cache the patterns, PBQA will try allocate a slot/process for each pattern-model pair in the llama.cpp server. As such, make sure to set `-np` to the amount of unique combinations of patterns and models you want to enable caching for.
 
@@ -128,10 +128,10 @@ Contributions are welcome! If you have any suggestions or would like to contribu
 If you want to support the development of PBQA, consider [buying me a coffee](https://ko-fi.com/baagsma). Any support is greatly appreciated!
 
 ## License and Acknowledgements
-This project is licensed under the terms of the MIT License. For more details, see the LICENSE file.
+This project is licensed under the terms of the MIT License. For more details, see the [LICENSE file](./LICENSE).
 
-Qdrant is a vector database that provides an API for managing and querying text embeddings. PBQA uses Qdrant to store and retrieve text embeddings.
+[Qdrant](https://github.com/qdrant/qdrant-client) is a vector database that provides an API for managing and querying text embeddings. PBQA uses Qdrant to store and retrieve text embeddings.
 
-llama.cpp is a C++ library that provides an easy-to-use interface for running LLMs on a wide variety of hardware. It includes support for Apple silicon, x86 architectures, and NVIDIA GPUs, as well as custom CUDA kernels for running LLMs on AMD GPUs via HIP. PBQA uses llama.cpp to interact with LLMs.
+[llama.cpp](https://github.com/ggerganov/llama.cpp) is a C++ library that provides an easy-to-use interface for running LLMs on a wide variety of hardware. It includes support for Apple silicon, x86 architectures, and NVIDIA GPUs, as well as custom CUDA kernels for running LLMs on AMD GPUs via HIP. PBQA uses llama.cpp to interact with LLMs.
 
-PBQA was developed by Bart Haagsma as part of different project. If you have any questions or suggestions, please feel free to contact me at dev.baagsma@gmail.com
+PBQA was developed by Bart Haagsma as part of different project. If you have any questions or suggestions, please feel free to contact me at dev.baagsma@gmail.com.
