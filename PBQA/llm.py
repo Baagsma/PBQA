@@ -21,7 +21,6 @@ class LLM:
         self,
         db: DB,
         host: str = None,
-        cache_slots: int = 1,
     ):
         """
         Initialize the LLM (Language Learning Model.
@@ -31,14 +30,12 @@ class LLM:
         Parameters:
         - db (DB): The database to use for storing and retrieving examples.
         - host (str): The host of the LLM server. Can also be passed when connecting model servers.
-        - cache_slots (int): The number of cache slots to use for the LLM.
         """
 
         self.db = db
         self.host = host
 
-        self.cache_slots = cache_slots
-        self.cache_ids = {}
+        self.cache_slots = {}
 
         self.models = {}
 
@@ -51,7 +48,7 @@ class LLM:
         min_p: float = 0.07,
         top_p: float = 1.0,
         max_tokens: int = 4096,
-        stop: List[str] = None,
+        stop: List[str] = [],
         **kwargs,
     ) -> dict[str, str]:
         """
@@ -77,12 +74,9 @@ class LLM:
         if not host:
             raise ValueError("Failed to connect to LLM server. No host provided.")
 
-        if self.poke_server(host, port):
+        props = self.get_props(host, port)
+        if props != {}:
             log.info(f"Connected to model {model} at {host}:{port}")
-        else:
-            raise ValueError(
-                f"Failed to connect to LLM server at {host}:{port}. Ensure the server is running and the host and port are correct."
-            )
 
         self.models[model] = {
             "host": host,
@@ -91,7 +85,8 @@ class LLM:
             "min_p": min_p,
             "top_p": top_p,
             "max_tokens": max_tokens,
-            "stop": stop if stop else [],
+            "stop": stop,
+            "total_slots": props.get("total_slots", 1096),
             **kwargs,
         }
 
@@ -106,9 +101,21 @@ class LLM:
             return True
         except requests.exceptions.RequestException as e:
             log.warn(
-                f"Failed to connect to LLM server at {host}:{port}. Ensure the server is running."
+                f"Failed to connect to LLM server at {host}:{port}. Ensure the server is running and the host and port are correct."
             )
             return False
+
+    @staticmethod
+    def get_props(host: str, port: int) -> dict:
+        url = f"http://{host}:{port}"
+
+        try:
+            response = requests.get(url + "/props")
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            raise ValueError(
+                f"Failed to get properties from LLM server at {host}:{port}. Ensure the server is running and the host and port are correct."
+            )
 
     def _get_response(
         self,
@@ -126,7 +133,7 @@ class LLM:
         n_example: int = 0,
         min_d: float = None,
         use_cache: bool = True,
-        cache_id: int = None,
+        cache_slot: int = None,
         grammar: str = None,
         stop: List[str] = [],
         **kwargs,
@@ -149,7 +156,7 @@ class LLM:
         - n_example (int): The number of examples to load from the database.
         - min_d (float): The minimum distance between the input and the examples.
         - use_cache (bool): Whether to use the cache for the response.
-        - cache_id (int): The cache ID to use for the response.
+        - cache_slot (int): The cache slot to use for the response.
         - grammar (str): The grammar to use for the response.
         - stop (List[str]): Strings to stop the response generation.
         - kwargs: Additional arguments to pass when querying the database.
@@ -167,8 +174,15 @@ class LLM:
             e for e in exclude if e not in metadata["components"]
         ]:
             raise ValueError(
-                f"components {not_present_components} to exclude not found in pattern {pattern}"
+                f"Components {not_present_components} to exclude not found in pattern {pattern}"
             )
+
+        if not cache_slot or cache_slot >= self.models[model].get("total_slots", 1096):
+            if cache_slot:
+                log.warn(
+                    f"Provided cache slot {cache_slot} exceeds the maximum number of cache slots {self.models[model].get('total_slots', 1096)} or pattern {pattern} and model {model}. Using the last slot instead."
+                )
+            cache_slot = self._get_cache_slot(pattern, model)
 
         messages = self._format_messages(
             input=input,
@@ -191,37 +205,32 @@ class LLM:
             exclude=exclude,
         )
 
-        model_defaults = self.models[model]
-
-        parameters = {
-            **model_defaults,
-            **kwargs,  # This will override the defaults if any of these keys are present in kwargs
-        }
-        parameters["stop"] = model_defaults["stop"] + stop
-
-        log.info(f"Request:\n{yaml.dump(parameters, default_flow_style=False)}")
+        parameters = {**self.models[model], **kwargs}
+        parameters["stop"] = parameters.get("stop", []) + stop
 
         data = {
             "model": model,
-            "id_slot": cache_id
-            or self._get_cache_id(
-                pattern,
-                model,
-            ),
+            "id_slot": cache_slot,
             "cache_prompt": use_cache,
             "messages": messages,
             "grammar": grammar,
             **parameters,
         }
 
-        url = f"http://{parameters['host']}:{parameters['port']}/v1/chat/completions"
-        headers = {"Content-Type": "application/json", "Authorization": "Bearer no-key"}
+        # log.warn(f"grammar: {data['grammar']}")
 
         try:
+            url = (
+                f"http://{parameters['host']}:{parameters['port']}/v1/chat/completions"
+            )
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": "Bearer no-key",
+            }
             llm_response = requests.post(url, headers=headers, data=dumps(data))
         except requests.exceptions.RequestException as e:
             raise ValueError(
-                f"Request to LLM failed: {str(e)}\n\nEnsure the llama.cpp server is running (python3 server/run.py)."
+                f"Request to LLM failed: {str(e)}\n\nEnsure the llama.cpp server is running."
             )
 
         llm_response = llm_response.json()
@@ -463,14 +472,15 @@ class LLM:
         grammars = {}
 
         for comp in metadata["components"]:
-            if (
-                comp in exclude
-                or not metadata[comp]
-                or metadata[comp].get("external", False)
+            if comp in exclude or (
+                metadata[comp] and metadata[comp].get("external", False)
             ):
                 continue
 
-            grammars[comp] = metadata[comp].get("grammar", None)
+            try:
+                grammars[comp] = metadata[comp]["grammar"]
+            except TypeError:
+                grammars[comp] = None
 
         if len(grammars) == 0:
             return None
@@ -504,16 +514,53 @@ string ::=
 
         return grammar
 
-    def _get_cache_id(self, pattern: str, model: str) -> str:
-        moniker = self.get_cache_name(pattern, model)
+    def assign_cache_slot(
+        self,
+        pattern: str,
+        model: str,
+        cache_slot: int = None,
+    ) -> int:
+        """
+        Assign a cache slot to a specific pattern-model pair.
 
-        if moniker not in self.cache_ids:
+        Parameters:
+        - pattern (str): The pattern to assign the cache slot to.
+        - model (str): The model to assign the cache slot to.
+        - cache_slot (int): The cache slot to assign to the pattern and model
+
+        Returns:
+        - int: The cache slot.
+        """
+        if not cache_slot:
+            return self._get_cache_slot(pattern, model)
+
+        moniker = self._get_cache_moniker(pattern, model)
+
+        self.cache_slots[moniker] = min(
+            cache_slot,
+            self.models[model].get("total_slots", 1096) - 1,
+        )
+
+        if cache_slot > self.models[model].get("total_slots", 1096) - 1:
+            log.warn(
+                f"Provided cache slot {cache_slot} is greater than the total number of cache slots {self.models[model].get('total_slots', 1096)} for pattern {pattern} and model {model}. Using the last slot instead."
+            )
+
+        return self.cache_slots[moniker]
+
+    def _get_cache_slot(self, pattern: str, model: str) -> str:
+        moniker = self._get_cache_moniker(pattern, model)
+
+        if moniker not in self.cache_slots:
             # Fill the cache slots in order. If all slots are filled, reuse the last slot
-            self.cache_ids[moniker] = min(len(self.cache_ids), self.cache_slots - 1)
+            self.cache_slots[moniker] = min(
+                len(self.cache_slots),
+                self.models[model].get("total_slots", 1096) - 1,
+            )
 
-        return self.cache_ids[moniker]
+        return self.cache_slots[moniker]
 
-    def get_cache_name(self, pattern: str, model: str) -> str:
+    def _get_cache_moniker(self, pattern: str, model: str) -> str:
         return f"{pattern}_{model}"
 
     def ask(
@@ -533,7 +580,7 @@ string ::=
         n_example: int = 0,
         min_d: float = None,
         use_cache: bool = True,
-        cache_id: int = None,
+        cache_slot: int = None,
         grammar: str = None,
         stop: List[str] = [],
         **kwargs,
@@ -557,7 +604,7 @@ string ::=
         - n_example (int): The number of examples to load from the database.
         - min_d (float): The minimum distance between the input and the examples.
         - use_cache (bool): Whether to use the cache for the response.
-        - cache_id (int): The ID of the cache/process slot to use for the response.
+        - cache_slot (int): The ID of the cache/process slot to use for the response.
         - grammar (str): The grammar to use for the response.
         - stop (List[str]): Strings to stop the response generation.
         - kwargs: Additional arguments to pass when querying the database.
@@ -595,7 +642,7 @@ string ::=
             n_example=n_example,
             min_d=min_d,
             use_cache=use_cache,
-            cache_id=cache_id,
+            cache_slot=cache_slot,
             grammar=grammar,
             stop=stop,
             **kwargs,
