@@ -177,7 +177,9 @@ class LLM:
                 f"Components {not_present_components} to exclude not found in pattern {pattern}"
             )
 
-        if not cache_slot or cache_slot >= self.models[model].get("total_slots", 1096):
+        if cache_slot is None or cache_slot >= self.models[model].get(
+            "total_slots", 1096
+        ):
             if cache_slot:
                 log.warn(
                     f"Provided cache slot {cache_slot} exceeds the maximum number of cache slots {self.models[model].get('total_slots', 1096)} or pattern {pattern} and model {model}. Using the last slot instead."
@@ -531,7 +533,7 @@ string ::=
         Returns:
         - int: The cache slot.
         """
-        if not cache_slot:
+        if cache_slot is None:
             return self._get_cache_slot(pattern, model)
 
         moniker = self._get_cache_moniker(pattern, model)
@@ -550,13 +552,17 @@ string ::=
 
     def _get_cache_slot(self, pattern: str, model: str) -> str:
         moniker = self._get_cache_moniker(pattern, model)
+        total_slots = self.models[model].get("total_slots", 1096)
 
         if moniker not in self.cache_slots:
-            # Fill the cache slots in order. If all slots are filled, reuse the last slot
-            self.cache_slots[moniker] = min(
-                len(self.cache_slots),
-                self.models[model].get("total_slots", 1096) - 1,
-            )
+            # Find the lowest available slot
+            for slot in range(total_slots):
+                if slot not in self.cache_slots.values():
+                    self.cache_slots[moniker] = slot
+                    break
+            else:
+                # If no slots are available, use the last slot
+                self.cache_slots[moniker] = total_slots - 1
 
         return self.cache_slots[moniker]
 
