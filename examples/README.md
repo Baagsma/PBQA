@@ -43,9 +43,31 @@ See the [conversation section](#conversation) for an example of a pattern with a
 ## Caching
 Unless overridden, queries using the same pattern will use the same system prompt and base examples. This allows a large part of the response to be cached, speeding up generation. This can be disabled by setting `use_cache=False` in the `ask()` method.
 
-To cache the patterns, PBQA will try allocate a slot/process for each pattern-model pair in the llama.cpp server. As such, make sure to set `-np` to the amount of unique combinations of patterns and models you want to enable caching for. Then when initializing the `LLM()`, set `cache_slots` to the same amount.
+To cache the patterns, PBQA will try to allocate a slot/process for each pattern-model pair in the llama.cpp server. As such, make sure to set `-np` to the number of unique combinations of patterns and models you want to enable caching for. 
 
-The slots are allocated in the order they are requested, filling up the first process before moving on to the next. If the number of slots is exceeded, the last slot is overwritten. Alternatively, set `cache_id` in the `ask()` method to manually pick a slot.
+Unless manually assigned, the slots are allocated in the order they are requested. If the number of available slots is exceeded, the last slot is reused for any excess pattern-model pairs. This ensures that the cache slot will never exceed the number of processes available.
+
+The `assign_cache_slot` method can be used to manually assign a cache slot to a specific pattern-model pair. This method assigns a cache slot to a given pattern and model combination. Optionally, a specific cache slot can be provided, up to the number of available processes.
+
+
+```python
+from PBQA import DB, LLM
+
+
+db = DB(path="examples/db")
+db.load_pattern("examples/weather.yaml")
+
+llm = LLM(db=db, host="127.0.0.1")
+llm.connect_model(
+    model="llama",
+    port=8080,
+    stop=["<|eot_id|>", "<|start_header_id|>"],
+    temperature=0,
+)
+llm.assign_cache_slot(pattern="weather", model="llama")
+```
+
+Note that, while usually the cache slot used for a query is the one assigned to the pattern-model pair, the cache slot can be overridden by passing the `cache_slot` parameter to the `llm.ask()` method.
 
 # Conversation
 Conversational agents are a common usecase for LLMs. While PBQA allows for [structured responses](#grammar), it can also be used to generate free-form responses. Below is an example of a pattern file for a conversational agent.
