@@ -109,7 +109,6 @@ You can manually assign a cache slot to a specific pattern-model pair using the 
 Future features in no particular order with no particular timeline:
 
  - Preset grammars for common data types
- - Option to pick a specific caching slot for a query
  - Option to use self-hosted Qdrant server
  - Parallel query execution
  - Combining multi-shot prompting with message history
