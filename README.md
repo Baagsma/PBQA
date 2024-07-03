@@ -99,9 +99,11 @@ examples:  # Lastly, examples can be provided for multi-shot prompting
 For more examples, look at the pattern files in the [examples](examples/README.md#patterns) directory. Information on the GBNF grammar format can be found [here](https://github.com/ggerganov/llama.cpp/tree/master/grammars#gbnf-guide).
 
 ### Cache
-Unless overridden, queries using the same pattern will use the same system prompt and base examples. This allows a large part of the response to be cached, speeding up generation. This can be disabled by setting `use_cache=False` in the `ask()` method.
+Unless overridden, queries using the same pattern will use the same system prompt and base examples, allowing a large part of the response to be cached and speeding up generation. This can be disabled by setting `use_cache=False` in the `ask()` method.
 
-_Note:_ To cache the patterns, PBQA will try allocate a slot/process for each pattern-model pair in the llama.cpp server. As such, make sure to set `-np` to the amount of unique combinations of patterns and models you want to enable caching for.
+PBQA allocates a slot/process for each pattern-model pair in the llama.cpp server. Set `-np` to the number of unique combinations of patterns and models you want to enable caching for. Slots are allocated in the order they are requested, and if the number of available slots is exceeded, the last slot is reused for any excess pattern-model pairs.
+
+You can manually assign a cache slot to a specific pattern-model pair using the `assign_cache_slot` method. Optionally, a specific cache slot can be provided, up to the number of available processes. The cache slot used for a query can also be overridden by passing the `cache_slot` parameter to the `llm.ask()` method.
 
 ## Roadmap
 Future features in no particular order with no particular timeline:

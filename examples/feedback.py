@@ -34,6 +34,7 @@ db.add(
     feedback=True,
 )
 
+# See the repetition caveat in the README
 # db.add(
 #     input="Is it going to rain tonight at home?",
 #     collection_name="weather",

@@ -238,7 +238,9 @@ class DB:
         """
 
         if collection_name not in self.get_collections():
-            raise ValueError(f"Collection {collection_name} not found")
+            raise ValueError(
+                f"Collection {collection_name} not found. Make sure to load the pattern first or create the collection manually."
+            )
 
         metadata = self.client.scroll(
             collection_name="metadata",
