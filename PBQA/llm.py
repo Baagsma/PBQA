@@ -171,7 +171,7 @@ class LLM:
         metadata = self.db.get_metadata(pattern)
 
         if not_present_components := [
-            e for e in exclude if e not in metadata["components"]
+            e for e in exclude if e not in metadata["components"] and e != "input"
         ]:
             raise ValueError(
                 f"Components {not_present_components} to exclude not found in pattern {pattern}"
@@ -289,12 +289,11 @@ class LLM:
         """
 
         metadata = self.db.get_metadata(pattern)
-        components = metadata["components"]
         log.info(yaml.dump(metadata, default_flow_style=False))
 
         def format(
             responses: list[dict],
-            components: List[str] = components,
+            components: List[str] = metadata["components"],
             external: dict[str, str] = external,
             include: List[str] = include,
             exclude: List[str] = exclude,
@@ -304,34 +303,49 @@ class LLM:
             if not responses:
                 return []
 
-            external_keys_list = list(external.keys())
+            external_keys_set = set(external.keys())
 
-            if include:
-                components = [item for item in components if item in include]
+            components = [item for item in components if not include or item in include]
+            components.append(
+                "input"
+            )  # input is appended to the end of the list to ensure it is the last component in the message on the user side. This is helpful if a history is prepended externally.
 
-            user_components = ["input"] + [
+            user_components = [
                 item
                 for item in components
-                if item in external_keys_list and item not in exclude
+                if (item in external_keys_set or item == "input")
+                and item not in exclude
             ]
+            log.warn(f"user_components: {user_components}")
+
             assistant_components = [
                 item
                 for item in components
-                if item not in external_keys_list and item not in exclude
+                if item not in external_keys_set
+                and item not in exclude
+                and item != "input"
             ]
+            log.warn(f"assistant_components: {assistant_components}")
 
             def format_role(
                 role: str,
                 response: dict,
                 components: List[str],
             ) -> dict[str, str]:
-                if len(components) == 1:
-                    return {"role": role, "content": response[components[0]]}
-                else:
-                    return {
-                        "role": role,
-                        "content": dumps({comp: response[comp] for comp in components}),
-                    }
+                try:
+                    if len(components) == 1:
+                        return {"role": role, "content": response[components[0]]}
+                    else:
+                        return {
+                            "role": role,
+                            "content": dumps(
+                                {comp: response[comp] for comp in components}
+                            ),
+                        }
+                except KeyError:
+                    raise KeyError(
+                        f"Failed to format role {role}. Missing component(s) {[comp for comp in components if comp not in response.keys()]}. Make sure to provide all components in the response and to save the response with the correct components."
+                    )
 
             formatted_responses = []
 
@@ -475,7 +489,9 @@ class LLM:
 
         for comp in metadata["components"]:
             if comp in exclude or (
-                metadata[comp] and metadata[comp].get("external", False)
+                metadata[comp]
+                and metadata[comp].get("external", False)
+                and comp != "input"
             ):
                 continue
 
