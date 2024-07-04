@@ -306,7 +306,9 @@ class LLM:
             external_keys_set = set(external.keys())
 
             components = [item for item in components if not include or item in include]
-            components.insert(0, "input")
+            components.append(
+                "input"
+            )  # input is appended to the end of the list to ensure it is the last component in the message on the user side. This is helpful if a history is prepended externally.
 
             user_components = [
                 item

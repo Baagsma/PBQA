@@ -1,4 +1,7 @@
 from PBQA import DB, LLM
+import logging
+
+logging.basicConfig(level=logging.INFO)
 
 
 db = DB(path="examples/db")
@@ -14,11 +17,18 @@ llm.connect_model(
 while True:
     user_input = input("User\n> ")
 
+    hist = db.where(collection_name="conversation", n=10)
+    hist.reverse()
+
+    hist = [{"input": item["input"], "reply": item["reply"]} for item in hist]
+
     response = llm.ask(
         input=user_input,
         pattern="conversation",
         model="llama",
+        external={"hist": hist},
         n_hist=50,
+        return_external=True,
     )
 
     db.add(
