@@ -1,8 +1,6 @@
 from PBQA import DB, LLM
 import logging
 
-logging.basicConfig(level=logging.INFO)
-
 
 db = DB(path="examples/db")
 db.load_pattern("examples/conversation.yaml")
