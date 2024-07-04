@@ -306,7 +306,7 @@ class LLM:
             external_keys_set = set(external.keys())
 
             components = [item for item in components if not include or item in include]
-            components.append("input")
+            components.insert(0, "input")
 
             user_components = [
                 item
@@ -330,13 +330,20 @@ class LLM:
                 response: dict,
                 components: List[str],
             ) -> dict[str, str]:
-                if len(components) == 1:
-                    return {"role": role, "content": response[components[0]]}
-                else:
-                    return {
-                        "role": role,
-                        "content": dumps({comp: response[comp] for comp in components}),
-                    }
+                try:
+                    if len(components) == 1:
+                        return {"role": role, "content": response[components[0]]}
+                    else:
+                        return {
+                            "role": role,
+                            "content": dumps(
+                                {comp: response[comp] for comp in components}
+                            ),
+                        }
+                except KeyError:
+                    raise KeyError(
+                        f"Failed to format role {role}. Missing component(s) {[comp for comp in components if comp not in response.keys()]}. Make sure to provide all components in the response and to save the response with the correct components."
+                    )
 
             formatted_responses = []
 
