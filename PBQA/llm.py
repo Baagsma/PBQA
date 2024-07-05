@@ -316,7 +316,6 @@ class LLM:
                 if (item in external_keys_set or item == "input")
                 and item not in exclude
             ]
-            log.warn(f"user_components: {user_components}")
 
             assistant_components = [
                 item
@@ -325,7 +324,6 @@ class LLM:
                 and item not in exclude
                 and item != "input"
             ]
-            log.warn(f"assistant_components: {assistant_components}")
 
             def format_role(
                 role: str,
