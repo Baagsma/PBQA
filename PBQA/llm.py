@@ -547,24 +547,25 @@ string ::=
         Returns:
         - int: The cache slot.
         """
-        if cache_slot is None:
-            return self._get_cache_slot(pattern, model)
-
         moniker = self._get_cache_moniker(pattern, model)
+        total_slots = self.models[model].get("total_slots", 1096)
 
-        self.cache_slots[moniker] = min(
-            cache_slot,
-            self.models[model].get("total_slots", 1096) - 1,
+        if cache_slot is None or cache_slot >= total_slots:
+            if cache_slot is not None:
+                log.warn(
+                    f"Provided cache slot {cache_slot} exceeds the total number of cache slots {total_slots} for pattern-model pair {pattern}-{model}. Using an auto-assigned slot instead."
+                )
+            result_slot = self._get_cache_slot(pattern, model)
+        else:
+            result_slot = cache_slot
+
+        self.cache_slots[moniker] = result_slot
+        log.info(
+            f"Assigned pattern-model pair {pattern}-{model} to cache slot {result_slot}"
         )
+        return result_slot
 
-        if cache_slot > self.models[model].get("total_slots", 1096) - 1:
-            log.warn(
-                f"Provided cache slot {cache_slot} is greater than the total number of cache slots {self.models[model].get('total_slots', 1096)} for pattern {pattern} and model {model}. Using the last slot instead."
-            )
-
-        return self.cache_slots[moniker]
-
-    def _get_cache_slot(self, pattern: str, model: str) -> str:
+    def _get_cache_slot(self, pattern: str, model: str) -> int:
         moniker = self._get_cache_moniker(pattern, model)
         total_slots = self.models[model].get("total_slots", 1096)
 
