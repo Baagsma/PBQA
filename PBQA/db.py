@@ -469,6 +469,22 @@ class DB:
         - component (str): The name of the component to index.
         - type (str): The type of index to create. Can be "keyword", "integer", "float", "bool", "geo", "datetime", or "text".
         """
+        if pattern not in self.get_collections():
+            raise ValueError(f"Pattern {pattern} not found ")
+        if component not in self.get_metadata(pattern)["components"]:
+            raise ValueError(f"Component {component} not found in pattern {pattern}")
+        if type not in [
+            "keyword",
+            "integer",
+            "float",
+            "bool",
+            "geo",
+            "datetime",
+            "text",
+        ]:
+            raise ValueError(
+                f"Invalid type {type}. Must be one of keyword, integer, float, bool, geo, datetime, or text."
+            )
 
         self.client.create_payload_index(
             collection_name=pattern, field_name=component, field_type=type
