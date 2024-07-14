@@ -41,7 +41,8 @@ class DB:
         - encoder (str): The name of the SentenceTransformer model to use for encoding documents.
         - reset (bool, optional): Whether to reset the database. Defaults to False.
         """
-
+        
+        self.use_remote = False
         if host and port:
             try:
                 requests.get(f"http://{host}:{port}")
@@ -50,6 +51,7 @@ class DB:
                     f"Failed to connect to Qdrant server at {host}:{port}. Ensure the server is running and the host and port are correct."
                 )
             self.client = QdrantClient(host=host, port=port)
+            self.use_remote = True
             log.info(f"Connected to Qdrant server at {host}:{port}")
         elif path:
             self.client = QdrantClient(path=path)
@@ -469,10 +471,11 @@ class DB:
         - component (str): The name of the component to index.
         - type (str): The type of index to create. Can be "keyword", "integer", "float", "bool", "geo", "datetime", or "text".
         """
+        if not self.use_remote:
+            return
+
         if pattern not in self.get_collections():
             raise ValueError(f"Pattern {pattern} not found ")
-        if component not in self.get_metadata(pattern)["components"]:
-            raise ValueError(f"Component {component} not found in pattern {pattern}")
         if type not in [
             "keyword",
             "integer",
