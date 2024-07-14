@@ -208,7 +208,7 @@ class DB:
         Parameters:
         - input (str): The document's input.
         - collection_name (str): The name of the collection to add the document to.
-        - time_added (time, optional): The time the document was added in Unix time. Defaults to the current time.
+        - time_added (float, optional): The time the document was added in Unix time. Defaults to time().
         - **kwargs: Additional keyword arguments to pass as metadata for the document.
 
         Returns:
