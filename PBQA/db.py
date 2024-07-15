@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime
 from time import time
 from typing import List, Union
+import requests
 
 import yaml
 from dateutil.parser import parse
@@ -22,27 +23,41 @@ class DB:
 
     def __init__(
         self,
-        path: str,
+        path: str = None,
+        host: str = None,
+        port: int = None,
         encoder: str = DEFAULT_ENCODER,
         reset: bool = False,
-        log_level: int = logging.WARN,
     ):
         """
         Initialize the DB client.
 
+        The database can be initialized with either a path to a Qdrant database or a host and port for a remote Qdrant server.
+
         Parameters:
-        - path (str): The path to the database. Defaults to `paths.db_dir` from the config file.
+        - path (str): The path to the database.
+        - host (str): The host of the Qdrant server.
+        - port (int): The port of the Qdrant server.
         - encoder (str): The name of the SentenceTransformer model to use for encoding documents.
         - reset (bool, optional): Whether to reset the database. Defaults to False.
         """
-
-        logging.basicConfig(level=log_level)
-
-        if not path:
-            raise FileNotFoundError("No path provided for the database.")
-        self.path = path
-
-        self.client = QdrantClient(path=self.path)
+        
+        self.use_remote = False
+        if host and port:
+            try:
+                requests.get(f"http://{host}:{port}")
+            except requests.exceptions.RequestException as e:
+                raise ValueError(
+                    f"Failed to connect to Qdrant server at {host}:{port}. Ensure the server is running and the host and port are correct."
+                )
+            self.client = QdrantClient(host=host, port=port)
+            self.use_remote = True
+            log.info(f"Connected to Qdrant server at {host}:{port}")
+        elif path:
+            self.client = QdrantClient(path=path)
+            log.info(f"Connected to Qdrant database at {path}")
+        else:
+            raise ValueError("No path or host provided for the database.")
 
         self.encoder = SentenceTransformer(encoder)
 
@@ -69,6 +84,7 @@ class DB:
         collection_name = file_name(path)
         if collection_name not in self.get_collections():
             self._add_from_file(path)
+            self.index(collection_name, "time_added", "float")
 
     def _add_from_file(
         self,
@@ -194,7 +210,7 @@ class DB:
         Parameters:
         - input (str): The document's input.
         - collection_name (str): The name of the collection to add the document to.
-        - time_added (time, optional): The time the document was added. Defaults to the current time.
+        - time_added (float, optional): The time the document was added in Unix time. Defaults to time().
         - **kwargs: Additional keyword arguments to pass as metadata for the document.
 
         Returns:
@@ -444,6 +460,40 @@ class DB:
 
         return results
 
+    def index(self, pattern: str, component: str, type: str):
+        """
+        Index a pattern component for filtering and ordering.
+
+        This method indexes a pattern component for filtering and ordering (https://qdrant.tech/documentation/concepts/indexing/#payload-index).
+
+        Parameters:
+        - pattern (str): The name of the pattern to index.
+        - component (str): The name of the component to index.
+        - type (str): The type of index to create. Can be "keyword", "integer", "float", "bool", "geo", "datetime", or "text".
+        """
+        if not self.use_remote:
+            return
+
+        if pattern not in self.get_collections():
+            raise ValueError(f"Pattern {pattern} not found ")
+        if type not in [
+            "keyword",
+            "integer",
+            "float",
+            "bool",
+            "geo",
+            "datetime",
+            "text",
+        ]:
+            raise ValueError(
+                f"Invalid type {type}. Must be one of keyword, integer, float, bool, geo, datetime, or text."
+            )
+
+        self.client.create_payload_index(
+            collection_name=pattern, field_name=component, field_type=type
+        )
+        log.info(f"Indexed {component} in {pattern} as {type}")
+
     @staticmethod
     def load_from_file(path: str) -> dict:
         """
@@ -474,8 +524,10 @@ class DB:
 
     @staticmethod
     def filter_to_qdrant_filter(filter: dict) -> models.Filter:
-        if not filter:
+        if not filter or not filter.keys():
             return None
+
+        log.info(f"Filter:\n{yaml.dump(filter, default_flow_style=False)}")
 
         def process_filter(key, value):
             if isinstance(value, dict):
