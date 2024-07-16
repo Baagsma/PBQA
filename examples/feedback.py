@@ -3,7 +3,7 @@ from time import strftime
 import datetime
 from json import dumps
 
-db = DB(path="examples/db", log_level="WARN")
+db = DB(path="examples/db")
 db.load_pattern("examples/weather.yaml")
 
 llm = LLM(db=db, host="192.168.0.137")
