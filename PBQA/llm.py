@@ -389,6 +389,8 @@ class LLM:
                 base_example={"eq": True},
             )
 
+            base_examples.reverse()
+
             messages += format(base_examples)
 
         examples = []

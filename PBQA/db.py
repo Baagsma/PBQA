@@ -41,7 +41,7 @@ class DB:
         - host (str): The host of the Qdrant server.
         - port (int): The port of the Qdrant server.
         - encoder (str): The name of the SentenceTransformer model to use for encoding documents.
-        - reset (bool, optional): Whether to reset the database. Defaults to False.
+        - reset (bool, optional): Whether to reset the database. Defaults to False. If True, the collections specified in the metadata collection will be deleted.
         - metadata_collection_name (str, optional): The name of the collection to store metadata in. Defaults to "metadata".
         """
 
@@ -352,8 +352,20 @@ class DB:
 
     def reset(self):
         """Reset the database by deleting all collections."""
+        if (
+            "metadata"
+            not in [  # If there is no metadata collection yet, we don't need to delete anything
+                collection.name
+                for collection in self.client.get_collections().__dict__["collections"]
+            ]
+        ):
+            return
+
+        log.warn("Resetting database")
+
         for collection in self.get_collections():
             self.client.delete_collection(collection)
+        self.client.delete_collection(self.metadata_collection_name)
 
     def query(
         self,
@@ -407,13 +419,11 @@ class DB:
                 )
             else:
                 log.warn(
-                    f"Collection found for pattern {pattern}. Using collection name {pattern} for query instead."
+                    f"No collection associated with pattern {pattern}. Using collection name {pattern} for query instead."
                 )
                 collection_name = pattern
         else:
-            collection_name = self.get_collection(
-                pattern
-            )  # If there is no pattern, we assume the collection name is the provided pattern, which is the case when using an alternative history name for example
+            collection_name = self.get_collection(pattern)
 
         if input == "":
             raise ValueError("Input cannot be empty. Use where method instead.")
@@ -496,7 +506,7 @@ class DB:
                 )
             else:
                 log.warn(
-                    f"Collection found for pattern {pattern}. Using collection name {pattern} for query instead."
+                    f"No collection associated with pattern {pattern}. Using collection name {pattern} for query instead."
                 )
                 collection_name = pattern
         else:
