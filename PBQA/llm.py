@@ -384,7 +384,7 @@ class LLM:
             n_base_example = 50
 
             base_examples = self.db.where(
-                collection_name=pattern,
+                pattern=pattern,
                 n=n_base_example,
                 base_example={"eq": True},
             )
@@ -425,7 +425,7 @@ class LLM:
         hist = []
         if n_hist:
             hist = self.db.where(
-                collection_name=history_name or pattern,
+                pattern=history_name or pattern,
                 start=time() - hist_duration,
                 end=time(),
                 n=n_hist,
