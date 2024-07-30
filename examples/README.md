@@ -55,7 +55,7 @@ from PBQA import DB, LLM
 
 
 db = DB(path="examples/db")
-db.load_pattern("examples/weather.yaml")
+db.load_pattern("examples/weather.yaml")  # optionally, provide a collection name
 
 llm = LLM(db=db, host="127.0.0.1")
 llm.connect_model(

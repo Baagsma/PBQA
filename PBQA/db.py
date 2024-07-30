@@ -20,6 +20,7 @@ class DB:
 
     DEFAULT_ENCODER = "all-MiniLM-L6-v2"
     DEFAULT_RESULT_COUNT = 5
+    DEFAULT_METADATA_COLLECTION_NAME = "metadata"
 
     def __init__(
         self,
@@ -27,6 +28,7 @@ class DB:
         host: str = None,
         port: int = None,
         encoder: str = DEFAULT_ENCODER,
+        metadata_collection_name: str = DEFAULT_METADATA_COLLECTION_NAME,
         reset: bool = False,
     ):
         """
@@ -39,9 +41,10 @@ class DB:
         - host (str): The host of the Qdrant server.
         - port (int): The port of the Qdrant server.
         - encoder (str): The name of the SentenceTransformer model to use for encoding documents.
-        - reset (bool, optional): Whether to reset the database. Defaults to False.
+        - reset (bool, optional): Whether to reset the database. Defaults to False. If True, the collections specified in the metadata collection will be deleted.
+        - metadata_collection_name (str, optional): The name of the collection to store metadata in. Defaults to "metadata".
         """
-        
+
         self.use_remote = False
         if host and port:
             try:
@@ -59,15 +62,21 @@ class DB:
         else:
             raise ValueError("No path or host provided for the database.")
 
+        self.host = host
+        self.port = port
         self.encoder = SentenceTransformer(encoder)
+        self.metadata_collection_name = metadata_collection_name
 
         if reset:
             log.info("Resetting db")
             self.reset()
 
-        if "metadata" not in self.get_collections():
+        if metadata_collection_name not in [
+            collection.name
+            for collection in self.client.get_collections().__dict__["collections"]
+        ]:  # Since Qdrant doesn't support metadata for collections, we use a separate collection for metadata
             self.metadata = self.client.create_collection(
-                collection_name="metadata",
+                collection_name=metadata_collection_name,
                 vectors_config=models.VectorParams(
                     size=1, distance=models.Distance.COSINE
                 ),
@@ -75,20 +84,26 @@ class DB:
 
         self.pattern_components = {}
 
-    def load_pattern(self, path: str):
+    def load_pattern(self, path: str, collection_name: str = None):
         if file_extension(path) not in ["yaml", "json"]:
             raise ValueError(
                 "Invalid file type. Only .yaml and .json files are supported."
             )
 
-        collection_name = file_name(path)
+        pattern_name = file_name(path)
+        collection_name = collection_name or pattern_name
+
         if collection_name not in self.get_collections():
-            self._add_from_file(path)
+            log.info(
+                f"Loading pattern {pattern_name} into collection {collection_name}"
+            )
+            self._add_from_file(path, collection_name=collection_name)
             self.index(collection_name, "time_added", "float")
 
     def _add_from_file(
         self,
         path: str,
+        collection_name: str,
         **kwargs,
     ) -> models.CollectionInfo:
         """
@@ -100,22 +115,25 @@ class DB:
 
         Parameters:
         - path (str): The path to the file to read.
+        - collection_name (str): The name of the collection to add the documents to.
 
         Returns:
         - Topic: The collection that the documents were added to.
         """
         prev = time()
 
-        collection_name = file_name(path)
         log.info(f"Populating collection {collection_name} with {path}")
 
         data = self.load_from_file(path)
 
         metadata = {k: v for k, v in data.items() if k != "examples"}
+
         if "system_prompt" not in metadata:
             log.warn(
                 f"Pattern {collection_name} does not contain a system_prompt. This may lead to unexpected behavior. May alternatively be passed when calling the LLM."
             )
+
+        metadata["pattern_name"] = file_name(path)
 
         self.create_collection(
             collection_name=collection_name,
@@ -167,11 +185,13 @@ class DB:
             )
 
             metadata["components"] = [
-                key for key in metadata.keys() if key != "system_prompt"
+                key
+                for key in metadata.keys()
+                if key != "system_prompt" and key != "pattern_name"
             ]
             metadata["collection_name"] = collection_name
             self.client.upsert(
-                collection_name="metadata",
+                collection_name=self.metadata_collection_name,
                 points=[
                     models.PointStruct(
                         id=str(uuid.uuid4()),
@@ -216,6 +236,10 @@ class DB:
         Returns:
         - dict: A dictionary representing the added document. The dictionary contains the document's input, id, and metadata.
         """
+        if collection_name not in self.get_collections():
+            raise ValueError(
+                f"Collection {collection_name} not found. Make sure to load the pattern first or create the collection manually."
+            )
 
         time_added = time_added or time()
 
@@ -239,42 +263,75 @@ class DB:
 
     def get_metadata(
         self,
-        collection_name: str,
+        pattern: str = None,
+        collection_name: str = None,
     ) -> dict:
         """
         Get the metadata for a collection.
 
-        This method retrieves the metadata for a collection.
+        This method retrieves the metadata for a collection or pattern.
 
         Parameters:
-        - collection_name (str): The name of the collection to query.
+        - pattern (str): The name of the pattern to query.
+        - collection_name (str): The name of the collection to query. Defaults to None.
 
         Returns:
         - dict: The metadata for the given collection.
         """
 
-        if collection_name not in self.get_collections():
+        if not pattern and not collection_name:
+            raise ValueError("Either pattern or collection_name must be provided.")
+
+        if not (
+            pattern in self.get_patterns() or collection_name in self.get_collections()
+        ):
             raise ValueError(
-                f"Collection {collection_name} not found. Make sure to load the pattern first or create the collection manually."
+                f"Neither pattern {pattern} nor collection {collection_name} found. Make sure to load the pattern first or create the collection manually."
             )
 
-        metadata = self.client.scroll(
-            collection_name="metadata",
-            scroll_filter=self.filter_to_qdrant_filter(
-                {"collection_name": collection_name}
-            ),
-        )[0][0].payload
+        if pattern:
+            metadata = self.client.scroll(
+                collection_name=self.metadata_collection_name,
+                scroll_filter=self.filter_to_qdrant_filter({"pattern_name": pattern}),
+            )[0]
+        else:
+            metadata = self.client.scroll(
+                collection_name=self.metadata_collection_name,
+                scroll_filter=self.filter_to_qdrant_filter(
+                    {"collection_name": collection_name}
+                ),
+            )[0]
 
-        return metadata
+        if len(metadata) > 1:
+            raise ValueError(
+                f"Multiple metadata entries found for {'pattern' if pattern else 'collection'} {pattern if pattern else collection_name}. This is not supported."
+            )
+
+        return metadata[0].payload
 
     def get_collections(self) -> List[str]:
         """Get the names of all collections in the database."""
-        collections = self.client.get_collections().__dict__["collections"]
-
+        collections = self.client.scroll(
+            collection_name=self.metadata_collection_name,
+            limit=500,
+        )[0]
         if len(collections) == 0:
             return []
+        return [collection.payload["collection_name"] for collection in collections]
 
-        return [collection.name for collection in collections]
+    def get_collection(self, pattern: str) -> str:
+        """Get the name of the collection for a given pattern."""
+        return self.get_metadata(pattern)["collection_name"]
+
+    def get_patterns(self) -> List[str]:
+        """Get the names of all patterns in the database."""
+        collections = self.client.scroll(
+            collection_name=self.metadata_collection_name,
+            limit=500,
+        )[0]
+        if len(collections) == 0:
+            return []
+        return [collection.payload["pattern_name"] for collection in collections]
 
     def n_collections(self):
         """Get the number of collections in the database."""
@@ -295,12 +352,24 @@ class DB:
 
     def reset(self):
         """Reset the database by deleting all collections."""
-        for collection in [collection for collection in self.get_collections()]:
-            self.client.delete_collection(collection_name=collection)
+        if (
+            "metadata"
+            not in [  # If there is no metadata collection yet, we don't need to delete anything
+                collection.name
+                for collection in self.client.get_collections().__dict__["collections"]
+            ]
+        ):
+            return
+
+        log.warn("Resetting database")
+
+        for collection in self.get_collections():
+            self.client.delete_collection(collection)
+        self.client.delete_collection(self.metadata_collection_name)
 
     def query(
         self,
-        collection_name: str,
+        pattern: str,
         input: str = "",
         n: int = DEFAULT_RESULT_COUNT,
         min_d: Union[int, None] = None,
@@ -333,7 +402,7 @@ class DB:
         You can also use the logical operators `_and` and `_or` to combine multiple filters, and the inclusion operators `in` and `nin` to filter based on whether a value is in or not in a predefined list.
 
         Parameters:
-        - collection_name (str): The name of the collection to query.
+        - pattern (str): The name of the pattern to query.
         - input (str): The input to match.
         - n (int, optional): The number of results to return. Defaults to DEFAULT_RESULT_COUNT.
         - min_d (Union[int, None], optional): The maximum distance for a document to be considered a match. If None, no maximum distance is used.
@@ -343,10 +412,18 @@ class DB:
         - List[dict]: A list of dictionaries, each representing a matching document. Each dictionary contains the document's input, id, distance from the query input, and metadata.
         """
 
-        if collection_name not in self.get_collections():
-            raise ValueError(
-                f"Collection {collection_name} not found. Make sure to load the pattern first or create the collection manually."
-            )
+        if pattern not in self.get_patterns():
+            if pattern not in self.get_collections():
+                raise ValueError(
+                    f"Neither pattern {pattern} nor collection {collection_name} found. Make sure to load the pattern first or create the collection manually."
+                )
+            else:
+                log.warn(
+                    f"No collection associated with pattern {pattern}. Using collection name {pattern} for query instead."
+                )
+                collection_name = pattern
+        else:
+            collection_name = self.get_collection(pattern)
 
         if input == "":
             raise ValueError("Input cannot be empty. Use where method instead.")
@@ -379,7 +456,7 @@ class DB:
 
     def where(
         self,
-        collection_name: str,
+        pattern: str,
         n: int = DEFAULT_RESULT_COUNT,
         start: float = None,
         end: float = None,
@@ -410,7 +487,7 @@ class DB:
         Note that metadata filters only search embeddings where the key exists. If a key is not present in the metadata, it will not be returned.
 
         Parameters:
-        - collection_name (str): The name of the collection to query.
+        - pattern (str): The name of the pattern to query.
         - n (int, optional): The number of results to return. Defaults to DEFAULT_RESULT_COUNT.
         - start (float, optional): The start time for the query. Defaults to None.
         - end (float, optional): The end time for the query. Defaults to None.
@@ -422,10 +499,18 @@ class DB:
         - List[dict]: A list of dictionaries, each representing a matching document. Each dictionary contains the document's input, id, and metadata.
         """
 
-        if collection_name not in self.get_collections():
-            raise ValueError(
-                f"Collection {collection_name} not found. Make sure to load the pattern first or create the collection manually."
-            )
+        if pattern not in self.get_patterns():
+            if pattern not in self.get_collections():
+                raise ValueError(
+                    f"Neither pattern {pattern} nor collection {collection_name} found. Make sure to load the pattern first or create the collection manually."
+                )
+            else:
+                log.warn(
+                    f"No collection associated with pattern {pattern}. Using collection name {pattern} for query instead."
+                )
+                collection_name = pattern
+        else:
+            collection_name = self.get_collection(pattern)
 
         if n == -1:
             n = 20
@@ -475,7 +560,7 @@ class DB:
             return
 
         if pattern not in self.get_collections():
-            raise ValueError(f"Pattern {pattern} not found ")
+            raise ValueError(f"Pattern {pattern} not found")
         if type not in [
             "keyword",
             "integer",
