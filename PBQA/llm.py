@@ -172,10 +172,14 @@ class LLM:
             model = self.pattern_models.get(pattern, None)
             if not model:
                 raise ValueError(
-                    f'No model provided and no model assigned for pattern "{pattern}". Make sure to call `link` or provide a model when calling `ask`.'
+                    f'No model provided and no model assigned for pattern "{pattern}". Make sure to call `llm.link()` or provide a model when calling `llm.ask()`.'
                 )
             log.info(
-                f'No model provided. Using stored model "{model}" for pattern "{pattern}" as assigned by the last call to `link`.'
+                f'No model provided. Using stored model "{model}" for pattern "{pattern}" as assigned by the last call to `llm.link()`.'
+            )
+        if model not in self.models:
+            raise ValueError(
+                f'Model "{model}" not found in models {self.models.keys()}. Make sure to connect the model first using the `llm.connect_model()` method.'
             )
 
         metadata = self.db.get_metadata(pattern)
@@ -635,7 +639,7 @@ string ::=
         Parameters:
         - input (str): The input to the LLM.
         - pattern (str): The pattern to use for generating the response.
-        - model (str): The model to use for generating the response. If None, the model assigned during the last appropriate `link` call is used.
+        - model (str): The model to use for generating the response. If None, the model assigned during the last appropriate `llm.link()` call is used.
         - external (dict[str, str]): External data to include in the response.
         - return_external (bool): Whether to return the external data in the response.
         - history_name (str): The name of the history to use for generating the response.
@@ -660,10 +664,6 @@ string ::=
         if pattern not in self.db.get_patterns():
             raise ValueError(
                 f'Pattern "{pattern}" not found in patterns {self.db.get_patterns()}. Make sure to load the pattern first using the `db.load_pattern()` method.'
-            )
-        if model not in self.models:
-            raise ValueError(
-                f'Model "{model}" not found in models {self.models}. Make sure to connect the model first using the `llm.connect_model()` method.'
             )
 
         metadata = self.db.get_metadata(pattern)
