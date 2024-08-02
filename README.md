@@ -105,6 +105,25 @@ PBQA allocates a slot/process for each pattern-model pair in the llama.cpp serve
 
 You can manually assign a cache slot to a specific pattern-model pair using the `link` method. Optionally, a specific cache slot can be provided, up to the number of available processes. The cache slot used for a query can also be overridden by passing the `cache_slot` parameter to the `llm.ask()` method.
 
+```py
+from PBQA import DB, LLM
+
+
+db = DB(path="examples/db")
+db.load_pattern("examples/weather.yaml")
+
+llm = LLM(db=db, host="127.0.0.1")
+llm.connect_model(
+    model="llama",
+    port=8080,
+    stop=["<|eot_id|>", "<|start_header_id|>"],
+    temperature=0,
+)
+llm.link(pattern="weather", model="llama")
+```
+
+Once a pattern-model pair is linked, the "model" parameter in the `ask()` method may also be omitted. The query will instead use the model assigned during the last appropriate `link` call.
+
 ## Roadmap
 Future features in no particular order with no particular timeline:
 

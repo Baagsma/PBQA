@@ -625,7 +625,7 @@ string ::=
         Parameters:
         - input (str): The input to the LLM.
         - pattern (str): The pattern to use for generating the response.
-        - model (str): The model to use for generating the response.
+        - model (str): The model to use for generating the response. If None, the model assigned during the last appropriate `link` call is used.
         - external (dict[str, str]): External data to include in the response.
         - return_external (bool): Whether to return the external data in the response.
         - history_name (str): The name of the history to use for generating the response.
