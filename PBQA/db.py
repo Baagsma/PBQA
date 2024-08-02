@@ -113,12 +113,14 @@ class DB:
         collection_name = collection_name or pattern_name
 
         if collection_name not in self.get_collections():
-            self._add_from_file(path, collection_name=collection_name)
+            self._add_from_file(
+                path, collection_name=collection_name, pattern_name=pattern_name
+            )
             self.index(collection_name, "time_added", "float")
             return
 
         current_hash = sha256(json.dumps(data).encode()).hexdigest()
-        stored_hash = self.get_metadata(collection_name)["hash"]
+        stored_hash = self.get_metadata(collection_name=collection_name)["hash"]
 
         if current_hash == stored_hash:
             log.info(
@@ -131,7 +133,9 @@ class DB:
                 f'Pattern "{pattern_name}" was updated. Updating collection "{collection_name}"'
             )
             self.delete_collection(collection_name)
-            self._add_from_file(path, collection_name=collection_name)
+            self._add_from_file(
+                path, collection_name=collection_name, pattern_name=pattern_name
+            )
             self.index(collection_name, "time_added", "float")
         else:
             log.warn(
@@ -142,6 +146,7 @@ class DB:
         self,
         path: str,
         collection_name: str,
+        pattern_name: str = None,
         **kwargs,
     ) -> str:
         """
@@ -154,6 +159,7 @@ class DB:
         Parameters:
         - path (str): The path to the file to read.
         - collection_name (str): The name of the collection to add the documents to.
+        - pattern_name (str, optional): The name of the pattern to associate with the collection. Defaults to None.
 
         Returns:
         - str: The collection that the documents were added to.
@@ -174,7 +180,7 @@ class DB:
         metadata["components"] = [
             key for key in metadata.keys() if key != "system_prompt"
         ]
-        metadata["pattern_name"] = file_name(path)
+        metadata["pattern_name"] = pattern_name or file_name(path)
         metadata["hash"] = sha256(json.dumps(data).encode()).hexdigest()
 
         self.create_collection(
@@ -280,7 +286,7 @@ class DB:
         """
         if collection_name not in self.get_collections():
             raise ValueError(
-                f'collection "{collection_name}" not found. Make sure to load the pattern first or create the collection manually.'
+                f'Collection "{collection_name}" not found. Make sure to load the pattern first or create the collection manually.'
             )
 
         time_added = time_added or time()
@@ -321,14 +327,18 @@ class DB:
         - dict: The metadata for the given collection.
         """
 
+        patterns = self.get_patterns()
+        collections = self.get_collections()
+
         if not pattern and not collection_name:
             raise ValueError("Either pattern or collection_name must be provided.")
-
-        if not (
-            pattern in self.get_patterns() or collection_name in self.get_collections()
-        ):
-            raise ValueError(
-                f'Neither pattern "{pattern}" nor collection "{collection_name}" found. Make sure to load the pattern first or create the collection manually.'
+        if pattern not in patterns:
+            ValueError(
+                f'Pattern "{pattern}" not found in patterns {patterns}. Make sure to load the pattern first or create the collection manually.'
+            )
+        if collection_name not in collections:
+            ValueError(
+                f'Collection "{collection_name}" not found in collections {collections}. Make sure to load the pattern first or create the collection manually.'
             )
 
         if pattern:
@@ -363,7 +373,7 @@ class DB:
 
     def get_collection(self, pattern: str) -> str:
         """Get the name of the collection for a given pattern."""
-        return self.get_metadata(pattern)["collection_name"]
+        return self.get_metadata(pattern=pattern)["collection_name"]
 
     def get_patterns(self) -> List[str]:
         """Get the names of all patterns in the database."""

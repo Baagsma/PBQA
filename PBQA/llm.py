@@ -37,7 +37,7 @@ class LLM:
 
         self.cache_slots = {}
         self.models = {}
-        self.patterns = {}
+        self.pattern_models = {}
 
     def connect_model(
         self,
@@ -169,7 +169,7 @@ class LLM:
         log.info(f"Generating response from LLM")
 
         if not model:
-            model = self.patterns[pattern]
+            model = self.pattern_models.get(pattern, None)
             if not model:
                 raise ValueError(
                     f'No model provided and no model assigned for pattern "{pattern}". Make sure to call `link` or provide a model when calling `ask`.'
@@ -584,7 +584,7 @@ string ::=
             f"Assigned pattern-model pair {pattern}-{model} to cache slot {result_slot}"
         )
 
-        self.patterns[pattern] = model
+        self.pattern_models[pattern] = model
 
         return result_slot
 
@@ -656,6 +656,15 @@ string ::=
         Returns:
         - Union[str, dict]: The response from the LLM.
         """
+
+        if pattern not in self.db.get_patterns():
+            raise ValueError(
+                f'Pattern "{pattern}" not found in patterns {self.db.get_patterns()}. Make sure to load the pattern first using the `db.load_pattern()` method.'
+            )
+        if model not in self.models:
+            raise ValueError(
+                f'Model "{model}" not found in models {self.models}. Make sure to connect the model first using the `llm.connect_model()` method.'
+            )
 
         metadata = self.db.get_metadata(pattern)
 
