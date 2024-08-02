@@ -44,7 +44,7 @@ class LLM:
         model: str,
         port: int,
         host: str = None,
-        temperature: float = 1.2,
+        temperature: float = 1.0,
         min_p: float = 0.07,
         top_p: float = 1.0,
         max_tokens: int = 4096,

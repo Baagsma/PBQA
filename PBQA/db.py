@@ -12,6 +12,8 @@ from dateutil.parser import parse
 from qdrant_client import QdrantClient, models
 from sentence_transformers import SentenceTransformer
 
+from hashlib import sha256
+
 log = logging.getLogger()
 
 
@@ -30,6 +32,7 @@ class DB:
         encoder: str = DEFAULT_ENCODER,
         metadata_collection_name: str = DEFAULT_METADATA_COLLECTION_NAME,
         reset: bool = False,
+        auto_update: bool = False,
     ):
         """
         Initialize the DB client.
@@ -41,8 +44,9 @@ class DB:
         - host (str): The host of the Qdrant server.
         - port (int): The port of the Qdrant server.
         - encoder (str): The name of the SentenceTransformer model to use for encoding documents.
-        - reset (bool, optional): Whether to reset the database. Defaults to False. If True, the collections specified in the metadata collection will be deleted.
         - metadata_collection_name (str, optional): The name of the collection to store metadata in. Defaults to "metadata".
+        - reset (bool, optional): Whether to reset the database. Defaults to False. If True, the collections specified in the metadata collection will be deleted.
+        - auto_update (bool, optional): Whether to automatically update the database when the patterns change. Defaults to False.
         """
 
         self.use_remote = False
@@ -66,6 +70,7 @@ class DB:
         self.port = port
         self.encoder = SentenceTransformer(encoder)
         self.metadata_collection_name = metadata_collection_name
+        self.auto_update = auto_update
 
         if reset:
             log.info("Resetting db")
@@ -82,30 +87,63 @@ class DB:
                 ),
             )
 
-        self.pattern_components = {}
+    def load_pattern(
+        self, path: str, pattern_name: str = None, collection_name: str = None
+    ):
+        """
+        Load a pattern from a file.
 
-    def load_pattern(self, path: str, collection_name: str = None):
+        This method loads a pattern from a file and adds it to the database. The file can be in either JSON or YAML format. The pattern name is inferred from the file name, but can be overridden by passing a `pattern_name` parameter.
+
+        The file must contain at least one key for every component of the response, each of which can have its own metadata or be left empty. The collection name is inferred from the pattern name, but can be overridden by passing a `collection_name` parameter.
+
+        Parameters:
+        - path (str): The path to the file to read.
+        - pattern_name (str, optional): The name of the pattern to load. Defaults to None.
+        - collection_name (str, optional): The name of the collection to load the pattern into. Defaults to None.
+        """
+
         if file_extension(path) not in ["yaml", "json"]:
             raise ValueError(
                 "Invalid file type. Only .yaml and .json files are supported."
             )
 
-        pattern_name = file_name(path)
+        data = self.load_from_file(path)
+        pattern_name = pattern_name or file_name(path)
         collection_name = collection_name or pattern_name
 
         if collection_name not in self.get_collections():
-            log.info(
-                f'Loading pattern {pattern_name} into collection "{collection_name}"'
-            )
             self._add_from_file(path, collection_name=collection_name)
             self.index(collection_name, "time_added", "float")
+            return
+
+        current_hash = sha256(json.dumps(data).encode()).hexdigest()
+        stored_hash = self.get_metadata(collection_name)["hash"]
+
+        if current_hash == stored_hash:
+            log.info(
+                f'Pattern "{pattern_name}" already loaded into collection "{collection_name}"'
+            )
+            return
+
+        if self.auto_update:
+            log.info(
+                f'Pattern "{pattern_name}" was updated. Updating collection "{collection_name}"'
+            )
+            self.delete_collection(collection_name)
+            self._add_from_file(path, collection_name=collection_name)
+            self.index(collection_name, "time_added", "float")
+        else:
+            log.warn(
+                f'Pattern "{pattern_name}" was updated. To update the collection, set auto_update=True when initializing the DB or manually call db.delete_collection("{collection_name}") and db.load_pattern("{path}")'
+            )
 
     def _add_from_file(
         self,
         path: str,
         collection_name: str,
         **kwargs,
-    ) -> models.CollectionInfo:
+    ) -> str:
         """
         Add documents to a collection from a file.
 
@@ -118,7 +156,7 @@ class DB:
         - collection_name (str): The name of the collection to add the documents to.
 
         Returns:
-        - Topic: The collection that the documents were added to.
+        - str: The collection that the documents were added to.
         """
         prev = time()
 
@@ -133,7 +171,11 @@ class DB:
                 f"Pattern {collection_name} does not contain a system_prompt. This may lead to unexpected behavior. May alternatively be passed when calling the LLM."
             )
 
+        metadata["components"] = [
+            key for key in metadata.keys() if key != "system_prompt"
+        ]
         metadata["pattern_name"] = file_name(path)
+        metadata["hash"] = sha256(json.dumps(data).encode()).hexdigest()
 
         self.create_collection(
             collection_name=collection_name,
@@ -160,7 +202,7 @@ class DB:
         collection_name: str,
         metadata: dict = {},
         **kwargs,
-    ) -> str:
+    ):
         """
         Get a collection by name.
 
@@ -170,9 +212,6 @@ class DB:
         - collection_name (str): The name of the collection to retrieve.
         - metadata (dict, optional): Metadata to pass when creating the collection. Defaults to {"hnsw:space": "l2"}.
         - **kwargs: Additional keyword arguments to pass when retrieving the collection.
-
-        Returns:
-        - Topic: The collection with the given name.
         """
         if collection_name not in self.get_collections():
             log.info(
@@ -184,11 +223,6 @@ class DB:
                 distance=models.Distance.COSINE,
             )
 
-            metadata["components"] = [
-                key
-                for key in metadata.keys()
-                if key != "system_prompt" and key != "pattern_name"
-            ]
             metadata["collection_name"] = collection_name
             self.client.upsert(
                 collection_name=self.metadata_collection_name,
@@ -211,9 +245,17 @@ class DB:
 
     def delete_collection(self, collection_name: str):
         if collection_name not in self.get_collections():
-            raise ValueError(f'collection "{collection_name}" not found')
+            raise ValueError(f'Collection "{collection_name}" not found')
 
         self.client.delete_collection(collection_name=collection_name)
+
+        # Delete the pattern from the metadata
+        self.client.delete(
+            collection_name=self.metadata_collection_name,
+            points_selector=self.filter_to_qdrant_filter(
+                {"collection_name": collection_name}
+            ),
+        )
 
     def add(
         self,
