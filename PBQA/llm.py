@@ -36,8 +36,8 @@ class LLM:
         self.host = host
 
         self.cache_slots = {}
-
         self.models = {}
+        self.patterns = {}
 
     def connect_model(
         self,
@@ -76,7 +76,7 @@ class LLM:
 
         props = self.get_props(host, port)
         if props != {}:
-            log.info(f"Connected to model {model} at {host}:{port}")
+            log.info(f'Connected to model "{model}" at {host}:{port}')
 
         self.models[model] = {
             "host": host,
@@ -121,7 +121,7 @@ class LLM:
         self,
         input: str,
         pattern: str,
-        model: str,
+        model: str = None,
         external: dict[str, str] = {},
         history_name: str = None,
         system_prompt: str = None,
@@ -168,13 +168,23 @@ class LLM:
         prev = time()
         log.info(f"Generating response from LLM")
 
+        if not model:
+            model = self.patterns[pattern]
+            if not model:
+                raise ValueError(
+                    f'No model provided and no model assigned for pattern "{pattern}". Make sure to call `link` or provide a model when calling `ask`.'
+                )
+            log.info(
+                f'No model provided. Using stored model "{model}" for pattern "{pattern}" as assigned by the last call to `link`.'
+            )
+
         metadata = self.db.get_metadata(pattern)
 
         if not_present_components := [
             e for e in exclude if e not in metadata["components"] and e != "input"
         ]:
             raise ValueError(
-                f"Components {not_present_components} to exclude not found in pattern {pattern}"
+                f'Components {not_present_components} to exclude not found in pattern "{pattern}"'
             )
 
         if cache_slot is None or cache_slot >= self.models[model].get(
@@ -182,7 +192,7 @@ class LLM:
         ):
             if cache_slot:
                 log.warn(
-                    f"Provided cache slot {cache_slot} exceeds the maximum number of cache slots {self.models[model].get('total_slots', 1096)} or pattern {pattern} and model {model}. Using the last slot instead."
+                    f"Provided cache slot {cache_slot} exceeds the maximum number of cache slots {self.models[model].get('total_slots', 1096)} or pattern \"{pattern}\" and model \"{model}\". Using the last slot instead."
                 )
             cache_slot = self._get_cache_slot(pattern, model)
 
@@ -530,14 +540,14 @@ string ::=
 
         return grammar
 
-    def assign_cache_slot(
+    def link(
         self,
         pattern: str,
         model: str,
         cache_slot: int = None,
     ) -> int:
         """
-        Assign a cache slot to a specific pattern-model pair.
+        Link a pattern-model pair to a cache slot.
 
         Parameters:
         - pattern (str): The pattern to assign the cache slot to.
@@ -547,6 +557,16 @@ string ::=
         Returns:
         - int: The cache slot.
         """
+
+        if pattern not in self.db.get_patterns():
+            raise ValueError(
+                f'Pattern "{pattern}" not found. Make sure to load the pattern first using the `db.load_pattern()` method.'
+            )
+        if model not in self.models:
+            raise ValueError(
+                f'Model "{model}" not found. Make sure to connect the model first using the `llm.connect_model()` method.'
+            )
+
         moniker = self._get_cache_moniker(pattern, model)
         total_slots = self.models[model].get("total_slots", 1096)
 
@@ -563,6 +583,9 @@ string ::=
         log.info(
             f"Assigned pattern-model pair {pattern}-{model} to cache slot {result_slot}"
         )
+
+        self.patterns[pattern] = model
+
         return result_slot
 
     def _get_cache_slot(self, pattern: str, model: str) -> int:
@@ -588,7 +611,7 @@ string ::=
         self,
         input: str,
         pattern: str,
-        model: str,
+        model: str = None,
         external: dict[str, str] = {},
         return_external: bool = False,
         history_name: str = None,
@@ -612,7 +635,7 @@ string ::=
         Parameters:
         - input (str): The input to the LLM.
         - pattern (str): The pattern to use for generating the response.
-        - model (str): The model to use for generating the response.
+        - model (str): The model to use for generating the response. If None, the model assigned during the last appropriate `link` call is used.
         - external (dict[str, str]): External data to include in the response.
         - return_external (bool): Whether to return the external data in the response.
         - history_name (str): The name of the history to use for generating the response.
