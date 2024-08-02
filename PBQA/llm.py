@@ -233,7 +233,9 @@ class LLM:
             **parameters,
         }
 
-        # log.warn(f"grammar: {data['grammar']}")
+        log.info(
+            f"Performing query ({pattern}-{model}) at {parameters['host']}:{parameters['port']} ID slot {cache_slot}"
+        )
 
         try:
             url = (
@@ -571,7 +573,6 @@ string ::=
                 f'Model "{model}" not found. Make sure to connect the model first using the `llm.connect_model()` method.'
             )
 
-        moniker = self._get_cache_moniker(pattern, model)
         total_slots = self.models[model].get("total_slots", 1096)
 
         if cache_slot is None or cache_slot >= total_slots:
@@ -583,7 +584,10 @@ string ::=
         else:
             result_slot = cache_slot
 
-        self.cache_slots[moniker] = result_slot
+        if model not in self.cache_slots:
+            self.cache_slots[model] = {}
+        self.cache_slots[model][pattern] = result_slot
+
         log.info(
             f"Assigned pattern-model pair {pattern}-{model} to cache slot {result_slot}"
         )
@@ -593,23 +597,22 @@ string ::=
         return result_slot
 
     def _get_cache_slot(self, pattern: str, model: str) -> int:
-        moniker = self._get_cache_moniker(pattern, model)
         total_slots = self.models[model].get("total_slots", 1096)
 
-        if moniker not in self.cache_slots:
-            # Find the lowest available slot
+        if model not in self.cache_slots:
+            self.cache_slots[model] = {}
+
+        if pattern not in self.cache_slots[model]:
+            # Find the lowest available slot for this model
             for slot in range(total_slots):
-                if slot not in self.cache_slots.values():
-                    self.cache_slots[moniker] = slot
+                if slot not in self.cache_slots[model].values():
+                    self.cache_slots[model][pattern] = slot
                     break
             else:
-                # If no slots are available, use the last slot
-                self.cache_slots[moniker] = total_slots - 1
+                # If no slots are available for this model, use the last slot
+                self.cache_slots[model][pattern] = total_slots - 1
 
-        return self.cache_slots[moniker]
-
-    def _get_cache_moniker(self, pattern: str, model: str) -> str:
-        return f"{pattern}_{model}"
+        return self.cache_slots[model][pattern]
 
     def ask(
         self,
