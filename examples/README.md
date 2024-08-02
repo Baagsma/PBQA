@@ -55,7 +55,7 @@ from PBQA import DB, LLM
 
 
 db = DB(path="examples/db")
-db.load_pattern("examples/weather.yaml")  # optionally, provide a collection name
+db.load_pattern("examples/weather.yaml")
 
 llm = LLM(db=db, host="127.0.0.1")
 llm.connect_model(
@@ -77,7 +77,7 @@ system_prompt: You are a virtual assistant. Your tone is friendly and helpful.
 reply:
 ```
 
-Though no grammar or examples are provided, the response will still be steered by the system prompt.
+When no grammar or examples are provided, the response will still be steered by the system prompt.
 
 ## Setup
 To use a pattern, first the vector database must be initialized and the necessary files loaded. After that, the LLM can be connected to the model(s) to be queried.
@@ -87,7 +87,7 @@ from PBQA import DB, LLM
 
 
 db = DB(path="examples/db")
-db.load_pattern("examples/conversation.yaml")
+db.load_pattern("examples/conversation.yaml")  # optionally, provide a collection name
 
 llm = LLM(db=db, host="127.0.0.1")
 llm.connect_model(
@@ -96,6 +96,10 @@ llm.connect_model(
     stop=["<|eot_id|>", "<|start_header_id|>"],
 )
 ```
+
+The DB can be initialized with a path to a Qdrant database or a host and port for a remote Qdrant server. Setting `auto_update=True` will automatically update the database when the patterns change. When using a remote Qdrant server, the component to order the results by must first be indexed using the `db.index()` method. Loading patterns into the database is done using the `db.load_pattern()` method. By default, the database uses the pattern name is inferred from the file name, but can be overridden by passing a `pattern_name` parameter. Similarly, the collection name is inferred from the pattern name, but can be overridden by passing a `collection_name` parameter.
+
+After this the LLM can be initialized and connected to the models. Besides the model name and the port, additional parameters can be passed to the `llm.connect_model()` method that are passed to the `llama.cpp` server when running a query. Notably, the `stop` parameter can be used to specify strings to stop the response generation. The `temperature` parameter can be used to specify the temperature to use for generation, and the `min_p` and `top_p` parameters can be used to specify the minimum probability and top probability to use for generation. For a complete list of parameters, see the [llama.cpp documentation](https://github.com/ggerganov/llama.cpp/blob/master/examples/server/README.md#api-endpoints).
 
 To create a conversational agent, only a single query is needed.
 
@@ -123,7 +127,7 @@ The `n_hist` parameter is used to specify the number of previous interactions to
 
 After the response is generated, the exchange is added to the database for future reference.
 
-By default, the database has a "collection" for each pattern that was loaded. And when unspecified, the default collection from which the history is retrieved when queried, is the pattern name. This can be overridden by specifying the `history_name` parameter in the `llm.ask()` method. Collections can be created with the `db.create_collection()` method.
+By default, the database has a "collection" for each pattern that was loaded. And when unspecified, the default collection from which the history is retrieved when queried, is the pattern name. This can be overridden by specifying the `history_name` parameter in the `llm.ask()` method. Collections can also be created manually using the `db.create_collection()` method.
 
 _[Note.](#examples-and-history-caveat)_ The use of `n_hist` in conjunction with `n_examples` has not been properly tested yet. Using both parameters may lead to unexpected behavior.
 
