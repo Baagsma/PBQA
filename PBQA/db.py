@@ -95,7 +95,7 @@ class DB:
 
         if collection_name not in self.get_collections():
             log.info(
-                f"Loading pattern {pattern_name} into collection {collection_name}"
+                f'Loading pattern {pattern_name} into collection "{collection_name}"'
             )
             self._add_from_file(path, collection_name=collection_name)
             self.index(collection_name, "time_added", "float")
@@ -122,7 +122,7 @@ class DB:
         """
         prev = time()
 
-        log.info(f"Populating collection {collection_name} with {path}")
+        log.info(f'Populating collection "{collection_name}" with {path}')
 
         data = self.load_from_file(path)
 
@@ -176,7 +176,7 @@ class DB:
         """
         if collection_name not in self.get_collections():
             log.info(
-                f"Creating collection {collection_name} with metadata:\n{yaml.dump(metadata, default_flow_style=False)}"
+                f'Creating collection "{collection_name}" with metadata:\n{yaml.dump(metadata, default_flow_style=False)}'
             )
 
             config = models.VectorParams(
@@ -207,11 +207,11 @@ class DB:
                 **kwargs,
             )
         else:
-            log.info(f"Collection {collection_name} already exists")
+            log.info(f'collection "{collection_name}" already exists')
 
     def delete_collection(self, collection_name: str):
         if collection_name not in self.get_collections():
-            raise ValueError(f"Collection {collection_name} not found")
+            raise ValueError(f'collection "{collection_name}" not found')
 
         self.client.delete_collection(collection_name=collection_name)
 
@@ -238,7 +238,7 @@ class DB:
         """
         if collection_name not in self.get_collections():
             raise ValueError(
-                f"Collection {collection_name} not found. Make sure to load the pattern first or create the collection manually."
+                f'collection "{collection_name}" not found. Make sure to load the pattern first or create the collection manually.'
             )
 
         time_added = time_added or time()
@@ -286,7 +286,7 @@ class DB:
             pattern in self.get_patterns() or collection_name in self.get_collections()
         ):
             raise ValueError(
-                f"Neither pattern {pattern} nor collection {collection_name} found. Make sure to load the pattern first or create the collection manually."
+                f'Neither pattern "{pattern}" nor collection "{collection_name}" found. Make sure to load the pattern first or create the collection manually.'
             )
 
         if pattern:
@@ -343,7 +343,7 @@ class DB:
     def n(self, collection_name: str):
         """Get the number of documents in a collection."""
         if collection_name not in self.get_collections():
-            raise ValueError(f"Collection {collection_name} not found")
+            raise ValueError(f'collection "{collection_name}" not found')
 
         try:
             return self.client.count(collection_name)
@@ -415,11 +415,11 @@ class DB:
         if pattern not in self.get_patterns():
             if pattern not in self.get_collections():
                 raise ValueError(
-                    f"Neither pattern {pattern} nor collection {collection_name} found. Make sure to load the pattern first or create the collection manually."
+                    f'Neither pattern "{pattern}" nor collection "{collection_name}" found. Make sure to load the pattern first or create the collection manually.'
                 )
             else:
                 log.warn(
-                    f"No collection associated with pattern {pattern}. Using collection name {pattern} for query instead."
+                    f'No collection associated with pattern "{pattern}". Using collection name "{pattern}" for query instead.'
                 )
                 collection_name = pattern
         else:
@@ -502,11 +502,11 @@ class DB:
         if pattern not in self.get_patterns():
             if pattern not in self.get_collections():
                 raise ValueError(
-                    f"Neither pattern {pattern} nor collection {collection_name} found. Make sure to load the pattern first or create the collection manually."
+                    f'Neither pattern "{pattern}" nor collection "{collection_name}" found. Make sure to load the pattern first or create the collection manually.'
                 )
             else:
                 log.warn(
-                    f"No collection associated with pattern {pattern}. Using collection name {pattern} for query instead."
+                    f'No collection associated with pattern "{pattern}". Using collection name "{pattern}" for query instead.'
                 )
                 collection_name = pattern
         else:
@@ -560,7 +560,7 @@ class DB:
             return
 
         if pattern not in self.get_collections():
-            raise ValueError(f"Pattern {pattern} not found")
+            raise ValueError(f'Pattern "{pattern}" not found')
         if type not in [
             "keyword",
             "integer",

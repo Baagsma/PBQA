@@ -103,7 +103,7 @@ Unless overridden, queries using the same pattern will use the same system promp
 
 PBQA allocates a slot/process for each pattern-model pair in the llama.cpp server. Set `-np` to the number of unique combinations of patterns and models you want to enable caching for. Slots are allocated in the order they are requested, and if the number of available slots is exceeded, the last slot is reused for any excess pattern-model pairs.
 
-You can manually assign a cache slot to a specific pattern-model pair using the `assign_cache_slot` method. Optionally, a specific cache slot can be provided, up to the number of available processes. The cache slot used for a query can also be overridden by passing the `cache_slot` parameter to the `llm.ask()` method.
+You can manually assign a cache slot to a specific pattern-model pair using the `link` method. Optionally, a specific cache slot can be provided, up to the number of available processes. The cache slot used for a query can also be overridden by passing the `cache_slot` parameter to the `llm.ask()` method.
 
 ## Roadmap
 Future features in no particular order with no particular timeline:

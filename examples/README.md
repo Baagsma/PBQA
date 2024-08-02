@@ -47,7 +47,7 @@ To cache the patterns, PBQA will try to allocate a slot/process for each pattern
 
 Unless manually assigned, the slots are allocated in the order they are requested. If the number of available slots is exceeded, the last slot is reused for any excess pattern-model pairs. This ensures that the cache slot will never exceed the number of processes available.
 
-The `assign_cache_slot` method can be used to manually assign a cache slot to a specific pattern-model pair. This method assigns a cache slot to a given pattern and model combination. Optionally, a specific cache slot can be provided, up to the number of available processes.
+The `link` method can be used to manually assign a cache slot to a specific pattern-model pair. This method assigns a cache slot to a given pattern and model combination. Optionally, a specific cache slot can be provided, up to the number of available processes.
 
 
 ```python
@@ -64,7 +64,7 @@ llm.connect_model(
     stop=["<|eot_id|>", "<|start_header_id|>"],
     temperature=0,
 )
-llm.assign_cache_slot(pattern="weather", model="llama")
+llm.link(pattern="weather", model="llama")
 ```
 
 Note that, while usually the cache slot used for a query is the one assigned to the pattern-model pair, the cache slot can be overridden by passing the `cache_slot` parameter to the `llm.ask()` method.
