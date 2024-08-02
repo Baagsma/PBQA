@@ -229,13 +229,11 @@ class LLM:
                 "Content-Type": "application/json",
                 "Authorization": "Bearer no-key",
             }
-            llm_response = requests.post(url, headers=headers, data=dumps(data))
+            llm_response = requests.post(url, headers=headers, data=dumps(data)).json()
         except requests.exceptions.RequestException as e:
             raise ValueError(
                 f"Request to LLM failed: {str(e)}\n\nEnsure the llama.cpp server is running."
             )
-
-        llm_response = llm_response.json()
 
         log.info(f"Response:\n{yaml.dump(llm_response, default_flow_style=False)}")
 
