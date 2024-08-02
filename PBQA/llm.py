@@ -707,22 +707,25 @@ string ::=
         content = output["choices"][0]["message"]["content"]
 
         try:
-            response = loads(content)
+            response = json.loads(content)
         except json.JSONDecodeError:
-            component = (
+            # If JSON parsing fails, assume it's a single component response
+            expected_components = (
                 set(metadata["components"]) - set(exclude) - set(external.keys())
             )
-            if len(component) != 1:
+
+            log.warn(f"expected components: {expected_components}")
+
+            if len(expected_components) != 1:
                 raise ValueError(
-                    f"Failed to parse response from LLM. Expected one component, got {len(component)}: {component}."
+                    f'Failed to parse response from LLM:\n\t{content}\n\nMake sure to that strings in the "{pattern}" pattern grammars are properly escaped with double quotes ("\\"...\\"") when returning multiple components.'
                 )
 
-            response = loads(
-                dumps({component.pop(): content})
-            )  # When there is only one component, the model output is a string without a grammar for quality and speed, so the output has to be parsed into a dictionary manually
+            # When there is only one component, the model output is a string without a grammar for quality and speed, so the output has to be parsed into a dictionary manually
+            component = expected_components.pop()
+            response = {component: content}
 
         if return_external:
-            for comp in external_components:
-                response[comp] = external[comp]
+            response.update({comp: external[comp] for comp in external_components})
 
         return response
