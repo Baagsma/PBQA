@@ -88,7 +88,10 @@ class DB:
             )
 
     def load_pattern(
-        self, path: str, pattern_name: str = None, collection_name: str = None
+        self,
+        path: str,
+        pattern_name: str = None,
+        collection_name: str = None,
     ):
         """
         Load a pattern from a file.
@@ -118,6 +121,15 @@ class DB:
             )
             self.index(collection_name, "time_added", "float")
             return
+        else:
+            if pattern_name != (
+                stored_name := self.get_metadata(collection_name=collection_name)[
+                    "pattern_name"
+                ]
+            ):
+                raise ValueError(
+                    f'Collection "{collection_name}" already exists with a different pattern name "{stored_name}" from the one provided "{pattern_name}". To overwrite the collection, delete the collection first.'
+                )
 
         current_hash = sha256(json.dumps(data).encode()).hexdigest()
         stored_hash = self.get_metadata(collection_name=collection_name)["hash"]
@@ -247,11 +259,13 @@ class DB:
                 **kwargs,
             )
         else:
-            log.info(f'collection "{collection_name}" already exists')
+            log.info(f'Collection "{collection_name}" already exists')
 
     def delete_collection(self, collection_name: str):
         if collection_name not in self.get_collections():
-            raise ValueError(f'Collection "{collection_name}" not found')
+            raise ValueError(
+                f'Collection "{collection_name}" not found in collections {self.get_collections()}'
+            )
 
         self.client.delete_collection(collection_name=collection_name)
 
@@ -286,7 +300,7 @@ class DB:
         """
         if collection_name not in self.get_collections():
             raise ValueError(
-                f'Collection "{collection_name}" not found. Make sure to load the pattern first or create the collection manually.'
+                f'Collection "{collection_name}" not found in collections {self.get_collections()}. Make sure to load the pattern first or create the collection manually.'
             )
 
         time_added = time_added or time()
@@ -356,7 +370,7 @@ class DB:
 
         if len(metadata) > 1:
             raise ValueError(
-                f"Multiple metadata entries found for {'pattern' if pattern else 'collection'} {pattern if pattern else collection_name}. This is not supported."
+                f"Multiple metadata entries found for {'pattern' if pattern else 'collection'} \"{pattern if pattern else collection_name}\". Make sure there is only one {'pattern' if pattern else 'collection'} named \"{pattern if pattern else collection_name}\" in the database."
             )
 
         return metadata[0].payload
@@ -653,7 +667,7 @@ class DB:
                 return yaml.load(f, Loader=yaml.FullLoader)
         else:
             raise TypeError(
-                "Filetype '{filetype}' not supported for {file}".format(
+                'Filetype "{filetype}" not supported for "{file}"'.format(
                     filetype=os.path.splitext(path)[1][1:],
                     file=path,
                 )
