@@ -557,6 +557,16 @@ string ::=
         Returns:
         - int: The cache slot.
         """
+
+        if pattern not in self.db.get_patterns():
+            raise ValueError(
+                f'Pattern "{pattern}" not found. Make sure to load the pattern first using the `db.load_pattern()` method.'
+            )
+        if model not in self.models:
+            raise ValueError(
+                f'Model "{model}" not found. Make sure to connect the model first using the `llm.connect_model()` method.'
+            )
+
         moniker = self._get_cache_moniker(pattern, model)
         total_slots = self.models[model].get("total_slots", 1096)
 
