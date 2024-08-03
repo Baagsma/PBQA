@@ -712,14 +712,15 @@ string ::=
         if len(expected_components) == 1:
             response = {metadata["components"][0]: content}
         else:
-            try:
-                response = json.loads(
-                    json.dumps(content)
-                )  # Ensure that the response is a valid JSON object
+            try:  # Ensure that the response is a valid JSON object
+                response = json.loads(content)
             except json.JSONDecodeError:
-                raise ValueError(
-                    f'Failed to parse response from LLM:\n\t{content}\n\nMake sure to that strings in the "{pattern}" pattern grammars are properly escaped with double quotes ("\\"...\\"") when returning multiple components.'
-                )
+                try:
+                    response = json.loads(json.dumps(content))
+                except json.JSONDecodeError:
+                    raise ValueError(
+                        f'Failed to parse response from LLM:\n\t{content}\n\nMake sure to that strings in the "{pattern}" pattern grammars are properly escaped with double quotes ("\\"...\\"") when returning multiple components.'
+                    )
 
         if return_external:
             response.update({comp: external[comp] for comp in external_components})
