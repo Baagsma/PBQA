@@ -81,7 +81,7 @@ db = DB(path="db")
 db.load_pattern("examples/weather.yaml")
 db.load_pattern("examples/answer_json.yaml")
 
-llm = LLM(db=db, host="192.168.0.54")
+llm = LLM(db=db, host="localhost")
 llm.connect_model(
     model="llama",
     port=8080,

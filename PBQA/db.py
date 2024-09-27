@@ -488,11 +488,11 @@ class DB:
         if collection_name not in self.get_patterns():
             if collection_name not in self.get_collections():
                 raise ValueError(
-                    f'Neither pattern "{collection_name}" nor collection "{collection_name}" found. Make sure to load the pattern first or create the collection manually.'
+                    f'Neither pattern nor collection named "{collection_name}" found. Make sure to load the pattern first or create the collection manually.'
                 )
             else:
                 log.info(
-                    f'No collection associated with pattern "{collection_name}". Using collection name "{collection_name}" for query instead.'
+                    f'No collection associated with pattern "{collection_name}". Using collection "{collection_name}" for query instead.'
                 )
                 collection_name = collection_name
         else:
@@ -575,11 +575,11 @@ class DB:
         if collection_name not in self.get_patterns():
             if collection_name not in self.get_collections():
                 raise ValueError(
-                    f'Neither pattern "{collection_name}" nor collection "{collection_name}" found. Make sure to load the pattern first or create the collection manually.'
+                    f'Neither pattern nor collection named "{collection_name}" found. Make sure to load the pattern first or create the collection manually.'
                 )
             else:
                 log.info(
-                    f'No collection associated with pattern "{collection_name}". Using collection name "{collection_name}" for query instead.'
+                    f'No collection associated with pattern "{collection_name}". Using collection "{collection_name}" for query instead.'
                 )
                 collection_name = collection_name
         else:
