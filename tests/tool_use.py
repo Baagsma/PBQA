@@ -1,10 +1,19 @@
+import logging
+import os
+import sys
 from datetime import datetime
 from json import dumps
+from pathlib import Path
 from time import strftime
 
 import requests
 
-from PBQA import DB, LLM
+SCRIPT_DIR = Path(__file__).parent.resolve()
+sys.path.append(os.path.dirname(SCRIPT_DIR))
+from PBQA import DB, LLM  # run with python -m tests.tool_use
+
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger()
 
 
 def get_forecast(
@@ -43,7 +52,9 @@ class Agent:
             external={"now": strftime("%Y-%m-%d %H:%M")},
         )
 
-        print(f"Query:\n{dumps(weather_query, indent=4)}\n")
+        assert (
+            type(weather_query["latitude"]) == float
+        ), f"Expected float, got {weather_query['latitude']} ({type(weather_query['latitude'])})"
 
         forecast = get_forecast(**weather_query)
         forecast = self._format_forecast(forecast)
@@ -66,7 +77,7 @@ class Agent:
         }
 
 
-db = DB(path="examples/db")
+db = DB(path="db")
 db.load_pattern("examples/weather.yaml")
 db.load_pattern("examples/answer_json.yaml")
 
@@ -81,4 +92,9 @@ llm.connect_model(
 agent = Agent(db=db, llm=llm)
 
 response = agent.ask_weather("Could I see the stars tonight?")
-print(f"Response:\n{dumps(response, indent=4)}")
+assert response["thought"] != "", f"Expected a thought, got {response['thought']}"
+assert response["answer"] != "", f"Expected an answer, got {response['answer']}"
+
+log.info("All tests passed")
+db.delete_collection("weather")
+db.delete_collection("answer_json")
