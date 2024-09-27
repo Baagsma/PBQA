@@ -15,7 +15,7 @@ messages = ["Hey there", "My day is going well"]
 db = DB("db", reset=True)
 db.load_pattern("examples/conversation.yaml")
 
-llm = LLM(db=db, host="192.168.0.54")
+llm = LLM(db=db, host="localhost")
 llm.connect_model(
     model="llama",
     port=8080,

@@ -5,7 +5,7 @@ import logging
 db = DB(path="examples/db")
 db.load_pattern("examples/conversation.yaml")
 
-llm = LLM(db=db, host="192.168.0.137")
+llm = LLM(db=db, host="localhost")
 llm.connect_model(
     model="llama",
     port=8080,

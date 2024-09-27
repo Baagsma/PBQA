@@ -32,7 +32,7 @@ from PBQA import DB, LLM
 from time import strftime
 
 # First, we set up a database at a specified path
-db = DB(path="examples/db")
+db = DB(path="db")
 # Then, we load a pattern file into the database
 db.load_pattern("examples/weather.yaml")
 
@@ -109,7 +109,7 @@ You can manually assign a cache slot to a specific pattern-model pair using the 
 from PBQA import DB, LLM
 
 
-db = DB(path="examples/db")
+db = DB(path="db")
 db.load_pattern("examples/weather.yaml")
 
 llm = LLM(db=db, host="127.0.0.1")
@@ -139,6 +139,7 @@ Future features in no particular order with no particular timeline:
  - [Language Models are Few-Shot Learners (Brown et al., 2020)](https://arxiv.org/abs/2005.14165)
  - [Many-Shot In-Context Learning (Aragwal, 2024)](https://arxiv.org/abs/2404.11018)
  - [Chain-of-Thought Prompting Elicits Reasoning in Large Language Models (Wei et al., 2022)](https://arxiv.org/abs/2201.11903)
+ - [Using Grammar Masking to Ensure Syntactic Validity in LLM-based Modeling Tasks (Lukas et al., 2024)](https://arxiv.org/abs/2407.06146)
 
 ## Contributing
 Contributions are welcome! If you have any suggestions or would like to contribute, please open an issue or a pull request.

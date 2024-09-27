@@ -1,6 +1,7 @@
 # Project Specific
 test/
 examples/db
+db/
 
 # VSCode
 .vscode/

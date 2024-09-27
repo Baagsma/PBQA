@@ -395,9 +395,16 @@ class DB:
             collection_name=self.metadata_collection_name,
             limit=500,
         )[0]
-        if len(collections) == 0:
-            return []
-        return [collection.payload["pattern_name"] for collection in collections]
+        collections = [
+            collection
+            for collection in collections
+            if "pattern_name" in collection.payload
+        ]
+        return (
+            []
+            if len(collections) == 0
+            else [collection.payload["pattern_name"] for collection in collections]
+        )
 
     def n_collections(self):
         """Get the number of collections in the database."""
@@ -406,13 +413,13 @@ class DB:
         except Exception as e:
             return 0
 
-    def n(self, collection_name: str):
+    def n(self, collection_name: str) -> int:
         """Get the number of documents in a collection."""
         if collection_name not in self.get_collections():
             raise ValueError(f'collection "{collection_name}" not found')
 
         try:
-            return self.client.count(collection_name)
+            return self.client.count(collection_name).count
         except Exception as e:
             return 0
 
@@ -435,7 +442,7 @@ class DB:
 
     def query(
         self,
-        pattern: str,
+        collection_name: str,
         input: str = "",
         n: int = DEFAULT_RESULT_COUNT,
         min_d: Union[int, None] = None,
@@ -468,7 +475,7 @@ class DB:
         You can also use the logical operators `_and` and `_or` to combine multiple filters, and the inclusion operators `in` and `nin` to filter based on whether a value is in or not in a predefined list.
 
         Parameters:
-        - pattern (str): The name of the pattern to query.
+        - collection_name (str): The name of the pattern or collection to query.
         - input (str): The input to match.
         - n (int, optional): The number of results to return. Defaults to DEFAULT_RESULT_COUNT.
         - min_d (Union[int, None], optional): The maximum distance for a document to be considered a match. If None, no maximum distance is used.
@@ -478,18 +485,18 @@ class DB:
         - List[dict]: A list of dictionaries, each representing a matching document. Each dictionary contains the document's input, id, distance from the query input, and metadata.
         """
 
-        if pattern not in self.get_patterns():
-            if pattern not in self.get_collections():
+        if collection_name not in self.get_patterns():
+            if collection_name not in self.get_collections():
                 raise ValueError(
-                    f'Neither pattern "{pattern}" nor collection "{collection_name}" found. Make sure to load the pattern first or create the collection manually.'
+                    f'Neither pattern "{collection_name}" nor collection "{collection_name}" found. Make sure to load the pattern first or create the collection manually.'
                 )
             else:
-                log.warn(
-                    f'No collection associated with pattern "{pattern}". Using collection name "{pattern}" for query instead.'
+                log.info(
+                    f'No collection associated with pattern "{collection_name}". Using collection name "{collection_name}" for query instead.'
                 )
-                collection_name = pattern
+                collection_name = collection_name
         else:
-            collection_name = self.get_collection(pattern)
+            collection_name = self.get_collection(collection_name)
 
         if input == "":
             raise ValueError("Input cannot be empty. Use where method instead.")
@@ -522,7 +529,7 @@ class DB:
 
     def where(
         self,
-        pattern: str,
+        collection_name: str,
         n: int = DEFAULT_RESULT_COUNT,
         start: float = None,
         end: float = None,
@@ -553,7 +560,7 @@ class DB:
         Note that metadata filters only search embeddings where the key exists. If a key is not present in the metadata, it will not be returned.
 
         Parameters:
-        - pattern (str): The name of the pattern to query.
+        - collection_name (str): The name of the pattern or collection to query.
         - n (int, optional): The number of results to return. Defaults to DEFAULT_RESULT_COUNT.
         - start (float, optional): The start time for the query. Defaults to None.
         - end (float, optional): The end time for the query. Defaults to None.
@@ -565,28 +572,34 @@ class DB:
         - List[dict]: A list of dictionaries, each representing a matching document. Each dictionary contains the document's input, id, and metadata.
         """
 
-        if pattern not in self.get_patterns():
-            if pattern not in self.get_collections():
+        if collection_name not in self.get_patterns():
+            if collection_name not in self.get_collections():
                 raise ValueError(
-                    f'Neither pattern "{pattern}" nor collection "{collection_name}" found. Make sure to load the pattern first or create the collection manually.'
+                    f'Neither pattern "{collection_name}" nor collection "{collection_name}" found. Make sure to load the pattern first or create the collection manually.'
                 )
             else:
-                log.warn(
-                    f'No collection associated with pattern "{pattern}". Using collection name "{pattern}" for query instead.'
+                log.info(
+                    f'No collection associated with pattern "{collection_name}". Using collection name "{collection_name}" for query instead.'
                 )
-                collection_name = pattern
+                collection_name = collection_name
         else:
-            collection_name = self.get_collection(pattern)
+            collection_name = self.get_collection(collection_name)
 
         if n == -1:
             n = 20
         elif n < 1:
             return []
 
-        if start:
-            kwargs["time_added"] = {"gte": start}
-        if end:
-            kwargs["time_added"] = {"lte": end}
+        order_obj = models.OrderBy(key=order_by, direction=order_direction)
+        metadata = self.get_metadata(collection_name=collection_name)
+
+        if "time_added" in metadata:
+            if start:
+                kwargs["time_added"] = {"gte": start}
+            if end:
+                kwargs["time_added"] = {"lte": end}
+        elif order_by == "time_added":
+            order_obj = None
 
         scroll_filter = self.filter_to_qdrant_filter(kwargs)
 
@@ -594,10 +607,7 @@ class DB:
             collection_name=collection_name,
             scroll_filter=scroll_filter,
             limit=n,
-            order_by=models.OrderBy(
-                key=order_by,
-                direction=order_direction,
-            ),
+            order_by=order_obj,
         )
 
         results = [
@@ -611,22 +621,22 @@ class DB:
 
         return results
 
-    def index(self, pattern: str, component: str, type: str):
+    def index(self, collection_name: str, component: str, type: str):
         """
         Index a pattern component for filtering and ordering.
 
         This method indexes a pattern component for filtering and ordering (https://qdrant.tech/documentation/concepts/indexing/#payload-index).
 
         Parameters:
-        - pattern (str): The name of the pattern to index.
+        - collection_name (str): The name of the pattern or collection to index.
         - component (str): The name of the component to index.
         - type (str): The type of index to create. Can be "keyword", "integer", "float", "bool", "geo", "datetime", or "text".
         """
         if not self.use_remote:
             return
 
-        if pattern not in self.get_collections():
-            raise ValueError(f'Pattern "{pattern}" not found')
+        if collection_name not in self.get_collections():
+            raise ValueError(f'Pattern "{collection_name}" not found')
         if type not in [
             "keyword",
             "integer",
@@ -641,9 +651,11 @@ class DB:
             )
 
         self.client.create_payload_index(
-            collection_name=pattern, field_name=component, field_type=type
+            collection_name=collection_name,
+            field_name=component,
+            field_type=type,
         )
-        log.info(f"Indexed {component} in {pattern} as {type}")
+        log.info(f"Indexed {component} in {collection_name} as {type}")
 
     @staticmethod
     def load_from_file(path: str) -> dict:
@@ -677,8 +689,6 @@ class DB:
     def filter_to_qdrant_filter(filter: dict) -> models.Filter:
         if not filter or not filter.keys():
             return None
-
-        log.info(f"Filter:\n{yaml.dump(filter, default_flow_style=False)}")
 
         def process_filter(key, value):
             if isinstance(value, dict):

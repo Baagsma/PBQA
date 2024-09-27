@@ -77,7 +77,7 @@ class Agent:
         }
 
 
-db = DB(path="examples/db")
+db = DB(path="db")
 db.load_pattern("examples/weather.yaml")
 db.load_pattern("examples/answer_json.yaml")
 
@@ -96,3 +96,5 @@ assert response["thought"] != "", f"Expected a thought, got {response['thought']
 assert response["answer"] != "", f"Expected an answer, got {response['answer']}"
 
 log.info("All tests passed")
+db.delete_collection("weather")
+db.delete_collection("answer_json")
