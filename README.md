@@ -127,6 +127,7 @@ Once a pattern-model pair is linked, the "model" parameter in the `ask()` method
 ## Roadmap
 Future features in no particular order with no particular timeline:
 
+ - [Reranking](https://github.com/ggerganov/llama.cpp/blob/master/examples/server/README.md#post-reranking-rerank-documents-according-to-a-given-query)
  - Preset grammars for common data types
  - Parallel query execution
  - Combining multi-shot prompting with message history
