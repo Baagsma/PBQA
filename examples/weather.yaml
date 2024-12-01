@@ -1,4 +1,4 @@
-system_prompt: Your job is to translate the user's input into a weather query. The user may ask about the weather in general, the weather at a specific time, or the weather at a specific location. You should extract the time and location from the user's json and provide a (or part of a) weather query. Reply with the json for the weather query and nothing else.
+system_prompt: Your job is to translate the user's input into a weather query object. The object contains the latitude, longitude, and time of the weather query. Reply with the json for the weather query and nothing else.
 now:
   external: true
 latitude:
