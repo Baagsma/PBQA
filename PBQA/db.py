@@ -182,6 +182,7 @@ class DB:
         data = self.load_from_file(path)
 
         metadata = {k: v for k, v in data.items() if k != "examples"}
+        metadata["time_added"] = None
 
         if "system_prompt" not in metadata:
             log.warn(
