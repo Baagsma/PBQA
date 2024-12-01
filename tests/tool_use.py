@@ -81,11 +81,11 @@ db = DB(host="localhost", port=6333, reset=True)
 db.load_pattern("examples/weather.yaml")
 db.load_pattern("examples/answer_json.yaml")
 
-llm = LLM(db=db, host="localhost")
+llm = LLM(db=db, host="192.168.0.91")
 llm.connect_model(
     model="llama",
     port=8080,
-    stop=["<|eot_id|>", "<|start_header_id|>"],
+    stop=["<|eot_id|>", "<|start_header_id|>", "<|im_end|>"],
     temperature=0,
 )
 
