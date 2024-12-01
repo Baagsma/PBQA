@@ -23,7 +23,7 @@ entries = [
     },
 ]
 
-db = DB("db", reset=True)
+db = DB(host="localhost", port=6333, reset=True)
 db.create_collection("non_pattern_collection")
 assert db.get_collections() == ["non_pattern_collection"]
 

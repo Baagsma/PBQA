@@ -77,7 +77,7 @@ class Agent:
         }
 
 
-db = DB(path="db")
+db = DB(host="localhost", port=6333, reset=True)
 db.load_pattern("examples/weather.yaml")
 db.load_pattern("examples/answer_json.yaml")
 
