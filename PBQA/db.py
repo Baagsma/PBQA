@@ -3,16 +3,15 @@ import logging
 import os
 import uuid
 from datetime import datetime
+from hashlib import sha256
 from time import time
 from typing import List, Union
-import requests
 
+import requests
 import yaml
 from dateutil.parser import parse
 from qdrant_client import QdrantClient, models
 from sentence_transformers import SentenceTransformer
-
-from hashlib import sha256
 
 log = logging.getLogger()
 
@@ -262,6 +261,11 @@ class DB:
             log.info(f'Collection "{collection_name}" already exists')
 
     def delete_collection(self, collection_name: str):
+        if not self.use_remote:
+            raise ValueError(
+                "Cannot delete collection locally. Use a remote DB instead."
+            )
+
         if collection_name not in self.get_collections():
             raise ValueError(
                 f'Collection "{collection_name}" not found in collections {self.get_collections()}'
@@ -433,12 +437,16 @@ class DB:
             ]
         ):
             return
+        elif not self.use_remote:
+            raise ValueError(
+                f"Cannot reset database locally. Use a remote DB instead or reset manually at {self.path}"
+            )
 
-        log.warn("Resetting database")
+        log.warn(f"Resetting database (collections: {self.get_collections()})")
 
         for collection in self.get_collections():
-            self.client.delete_collection(collection)
-        self.client.delete_collection(self.metadata_collection_name)
+            self.client.delete_collection(collection_name=collection)
+        self.client.delete_collection(collection_name=self.metadata_collection_name)
 
     def query(
         self,
