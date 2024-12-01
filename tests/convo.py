@@ -10,9 +10,14 @@ from PBQA import DB, LLM  # run with python -m tests.convo
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger()
 
-messages = ["Hey there", "My day is going well"]
+messages = [
+    "Hey there",
+    "My day is going well",
+    "Actually, what's 1 + 1?",
+    "Now what's the capital of France?",
+]
 
-db = DB("db", reset=True)
+db = DB(host="localhost", port=6333, reset=True)
 db.load_pattern("examples/conversation.yaml")
 
 llm = LLM(db=db, host="localhost")
@@ -43,6 +48,11 @@ for message in messages:
     ), f"Expected {n + 1} entries, got {db.n('conversation')}"
 
     log.info(f"Response: {response['reply']}")
+
+history = db.where(collection_name="conversation")
+assert history == sorted(
+    history, key=lambda x: x["time_added"], reverse=True
+), f"Expected the history to be sorted by time_added, got {history}"
 
 log.info("All tests passed")
 db.delete_collection("conversation")
