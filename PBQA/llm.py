@@ -704,7 +704,9 @@ string ::=
 
         content = output["choices"][0]["message"]["content"]
         expected_components = (
-            set(metadata["components"]) - set(exclude) - set(external.keys())
+            set(metadata["components"])
+            - set(exclude + ["time_added"])
+            - set(external.keys())
         )
 
         if len(expected_components) == 1:
