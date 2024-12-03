@@ -9,7 +9,9 @@ from time import time
 class Weather(BaseModel):
     latitude: float
     longitude: float
-    time: str  # Annotated[str, Field(pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}$")]
+    time: Annotated[
+        str, Field(pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}$")
+    ]
 
 
 schema = Weather.model_json_schema()
@@ -33,8 +35,7 @@ data = {
     "id_slot": 0,
     "cache_prompt": True,
     "messages": messages,
-    # "json_schema": schema,
-    "grammar-file": "grammar.txt",
+    "json_schema": schema,
     "temperature": 0,
     "stop": ["<|eot_id|>", "<|start_header_id|>", "<|im_end|>"],
 }
