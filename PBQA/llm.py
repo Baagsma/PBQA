@@ -222,7 +222,6 @@ class LLM:
         )
 
         parameters = {**self.models[model], **kwargs}
-        parameters["stop"] = parameters.get("stop", []) + stop
 
         data = {
             "model": model,
@@ -230,6 +229,7 @@ class LLM:
             "cache_prompt": use_cache,
             "messages": messages,
             "grammar": grammar,
+            "stop": parameters.get("stop", []) + stop,
             **parameters,
         }
 
@@ -502,10 +502,8 @@ class LLM:
         grammars = {}
 
         for comp in metadata["components"]:
-            if comp in exclude or (
-                metadata[comp]
-                and metadata[comp].get("external", False)
-                and comp != "input"
+            if comp in exclude + ["input", "time_added"] or (
+                metadata[comp] and metadata[comp].get("external", False)
             ):
                 continue
 
@@ -706,7 +704,9 @@ string ::=
 
         content = output["choices"][0]["message"]["content"]
         expected_components = (
-            set(metadata["components"]) - set(exclude) - set(external.keys())
+            set(metadata["components"])
+            - set(exclude + ["time_added"])
+            - set(external.keys())
         )
 
         if len(expected_components) == 1:
