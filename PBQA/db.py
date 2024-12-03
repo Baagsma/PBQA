@@ -5,7 +5,8 @@ import uuid
 from datetime import datetime
 from hashlib import sha256
 from time import time
-from typing import List, Union
+from typing import List
+from pydantic import BaseModel
 
 import requests
 import yaml
@@ -45,7 +46,7 @@ class DB:
         - encoder (str): The name of the SentenceTransformer model to use for encoding documents.
         - metadata_collection_name (str, optional): The name of the collection to store metadata in. Defaults to "metadata".
         - reset (bool, optional): Whether to reset the database. Defaults to False. If True, the collections specified in the metadata collection will be deleted.
-        - auto_update (bool, optional): Whether to automatically update the database when the patterns change. Defaults to False.
+        - auto_update (bool, optional): Whether to automatically update the database when the patterns change. Defaults to False. Warning: Any changes to the examples, model, or system prompt will completely overwrite the collection.
         """
 
         self.use_remote = False
@@ -88,136 +89,131 @@ class DB:
 
     def load_pattern(
         self,
-        path: str,
-        pattern_name: str = None,
+        model: BaseModel,
+        examples: str | list[dict] = None,
+        system_prompt: str = None,
         collection_name: str = None,
+        **kwargs,
     ):
-        """
-        Load a pattern from a file.
-
-        This method loads a pattern from a file and adds it to the database. The file can be in either JSON or YAML format. The pattern name is inferred from the file name, but can be overridden by passing a `pattern_name` parameter.
-
-        The file must contain at least one key for every component of the response, each of which can have its own metadata or be left empty. The collection name is inferred from the pattern name, but can be overridden by passing a `collection_name` parameter.
-
-        Parameters:
-        - path (str): The path to the file to read.
-        - pattern_name (str, optional): The name of the pattern to load. Defaults to None.
-        - collection_name (str, optional): The name of the collection to load the pattern into. Defaults to None.
-        """
-
-        if file_extension(path) not in ["yaml", "json"]:
-            raise ValueError(
-                "Invalid file type. Only .yaml and .json files are supported."
-            )
-
-        data = self.load_from_file(path)
-        pattern_name = pattern_name or file_name(path)
+        pattern_name = model.__class__.__name__.lower()
         collection_name = collection_name or pattern_name
 
-        if collection_name not in self.get_collections():
-            self._add_from_file(
-                path, collection_name=collection_name, pattern_name=pattern_name
+        # Early conversion of file to examples if needed
+        if isinstance(examples, str):
+            examples = self.load_from_file(examples)
+
+        # Validate examples format
+        if not (
+            isinstance(examples, list)
+            and all(
+                isinstance(item, dict) and "user" in item and "assistant" in item
+                for item in examples
             )
-            self.index(collection_name, "time_added", "float")
-            return
-        else:
-            if pattern_name != (
-                stored_name := self.get_metadata(collection_name=collection_name)[
-                    "pattern_name"
-                ]
-            ):
+        ):
+            raise ValueError(
+                f"Invalid examples format. Expected list of dicts with 'user' and 'assistant' keys, got:\n{json.dumps(examples, indent=4)}"
+            )
+
+        # Generate hash for examples, model, and system prompt
+        hash = sha256(json.dumps((examples, model, system_prompt)).encode()).hexdigest()
+
+        # Handle existing collection with different hash
+        if collection_name in self.get_collections():
+            stored_pattern_name = self.get_metadata(collection_name=collection_name)[
+                "pattern_name"
+            ]
+
+            # Verify pattern name matches
+            if pattern_name != stored_pattern_name:
                 raise ValueError(
-                    f'Collection "{collection_name}" already exists with a different pattern name "{stored_name}" from the one provided "{pattern_name}". To overwrite the collection, delete the collection first.'
+                    f'Collection "{collection_name}" exists with different pattern name "{stored_pattern_name}". Delete collection first to overwrite.'
                 )
 
-        current_hash = sha256(json.dumps(data).encode()).hexdigest()
-        stored_hash = self.get_metadata(collection_name=collection_name)["hash"]
+            stored_hash = self.get_metadata(collection_name=collection_name)["hash"]
+            if hash == stored_hash:
+                log.info(
+                    f'Pattern "{pattern_name}" already loaded into collection "{collection_name}".'
+                )
+                return
 
-        if current_hash == stored_hash:
-            log.info(
-                f'Pattern "{pattern_name}" already loaded into collection "{collection_name}"'
-            )
-            return
+            # Handle hash mismatch
+            if not self.auto_update:
+                log.warn(
+                    f'Pattern "{pattern_name}" was updated. To update, set auto_update=True or manually delete and reload collection.'
+                )
+                return
 
-        if self.auto_update:
             log.info(
                 f'Pattern "{pattern_name}" was updated. Updating collection "{collection_name}"'
             )
             self.delete_collection(collection_name)
-            self._add_from_file(
-                path, collection_name=collection_name, pattern_name=pattern_name
-            )
-            self.index(collection_name, "time_added", "float")
-        else:
-            log.warn(
-                f'Pattern "{pattern_name}" was updated. To update the collection, set auto_update=True when initializing the DB or manually call db.delete_collection("{collection_name}") and db.load_pattern("{path}")'
+
+        # Create new collection
+        self.create_collection(
+            collection_name=collection_name,
+            metadata={
+                "pattern_name": pattern_name,
+                "model": model.model_json_schema(),
+                "system_prompt": system_prompt,
+                "hash": hash,
+                "time_added": None,
+                **kwargs,
+            },
+        )
+
+        # Load examples
+        log.info(f'Loading examples into collection "{collection_name}"')
+        prev = time()
+
+        for example in examples:
+            # Validate example against model schema
+            if not (
+                isinstance(example["assistant"], dict)
+                and example["assistant"] == model.model_validate(example["assistant"])
+            ):
+                raise ValueError(
+                    f"Example doesn't match model schema:\n{json.dumps(example['assistant'], indent=4)}"
+                )
+
+            self.add(
+                input=example["user"],
+                collection_name=collection_name,
+                base_example=True,
+                **example["assistant"],
             )
 
-    def _add_from_file(
-        self,
-        path: str,
-        collection_name: str,
-        pattern_name: str = None,
-        **kwargs,
-    ) -> str:
+        log.info(f'Populated collection "{collection_name}" in {time() - prev:.3f} s')
+        self.index(collection_name, "time_added", "float")
+
+    @staticmethod
+    def load_from_file(path: str) -> dict:
         """
-        Add documents to a collection from a file.
+        Load data from a file.
 
-        This method reads a file and adds the documents it contains to a collection. The file can be in either JSON or YAML format. The collection name is inferred from the file name, but can be overridden by passing a `collection_name` parameter.
-
-        The file should contain a dictionary with at least a `data` key, which contains a list of dictionaries. Each dictionary in the `data` list represents a document, and should contain a `input` key with the document's input. Additional keys in the dictionary are treated as metadata for the document.
+        This method reads a file and loads its contents into a dictionary. The file can be in either JSON or YAML format.
 
         Parameters:
         - path (str): The path to the file to read.
-        - collection_name (str): The name of the collection to add the documents to.
-        - pattern_name (str, optional): The name of the pattern to associate with the collection. Defaults to None.
 
         Returns:
-        - str: The collection that the documents were added to.
+        - dict: The contents of the file as a dictionary.
         """
-        prev = time()
 
-        log.info(f'Populating collection "{collection_name}" with {path}')
-
-        data = self.load_from_file(path)
-
-        metadata = {k: v for k, v in data.items() if k != "examples"}
-        metadata["time_added"] = None
-
-        if "system_prompt" not in metadata:
-            log.warn(
-                f"Pattern {collection_name} does not contain a system_prompt. This may lead to unexpected behavior. May alternatively be passed when calling the LLM."
+        if path.endswith(".json"):
+            with open(path) as f:
+                return json.load(f)
+        elif path.endswith(".yaml"):
+            with open(path) as f:
+                return yaml.load(f, Loader=yaml.FullLoader)
+        else:
+            raise TypeError(
+                f'Filetype "{file_extension(path)}" not supported for "{path}"'
             )
-
-        metadata["components"] = [
-            key for key in metadata.keys() if key != "system_prompt"
-        ]
-        metadata["pattern_name"] = pattern_name or file_name(path)
-        metadata["hash"] = sha256(json.dumps(data).encode()).hexdigest()
-
-        self.create_collection(
-            collection_name=collection_name,
-            metadata=metadata,
-            **kwargs,
-        )
-
-        if "examples" in data:
-            for item in data["examples"]:
-                self.add(
-                    **item,
-                    collection_name=collection_name,
-                    base_example=True,
-                )
-
-            log.info(
-                f"Added {len(data['examples'])} documents in {(time() - prev):.1f} s"
-            )
-
-        return collection_name
 
     def create_collection(
         self,
         collection_name: str,
+        distance: str = "cosine",
         metadata: dict = {},
         **kwargs,
     ):
@@ -228,38 +224,40 @@ class DB:
 
         Parameters:
         - collection_name (str): The name of the collection to retrieve.
-        - metadata (dict, optional): Metadata to pass when creating the collection. Defaults to {"hnsw:space": "l2"}.
-        - **kwargs: Additional keyword arguments to pass when retrieving the collection.
+        - distance (str, optional): The distance metric to use for the collection. Defaults to "cosine". Must be one of "cosine", "euclid", "dot", or "manhattan".
+        - metadata (dict, optional): Metadata to pass when creating the collection.
+        - **kwargs: Additional keyword arguments to pass when creating the collection.
         """
-        if collection_name not in self.get_collections():
-            log.info(
-                f'Creating collection "{collection_name}" with metadata:\n{yaml.dump(metadata, default_flow_style=False)}'
-            )
-
-            config = models.VectorParams(
-                size=self.encoder.get_sentence_embedding_dimension(),
-                distance=models.Distance.COSINE,
-            )
-
-            metadata["collection_name"] = collection_name
-            self.client.upsert(
-                collection_name=self.metadata_collection_name,
-                points=[
-                    models.PointStruct(
-                        id=str(uuid.uuid4()),
-                        vector=[0],
-                        payload=metadata,
-                    )
-                ],
-            )
-
-            self.client.create_collection(
-                collection_name=collection_name,
-                vectors_config=config,
-                **kwargs,
-            )
-        else:
+        if collection_name in self.get_collections():
             log.info(f'Collection "{collection_name}" already exists')
+            return
+
+        log.info(
+            f'Creating collection "{collection_name}" with metadata:\n{json.dumps(metadata, indent=4)}'
+        )
+
+        config = models.VectorParams(
+            size=self.encoder.get_sentence_embedding_dimension(),
+            distance=models.Distance[distance.upper()],
+        )
+
+        metadata["collection_name"] = collection_name
+        self.client.upsert(
+            collection_name=self.metadata_collection_name,
+            points=[
+                models.PointStruct(
+                    id=str(uuid.uuid4()),
+                    vector=[0],
+                    payload=metadata,
+                )
+            ],
+        )
+
+        self.client.create_collection(
+            collection_name=collection_name,
+            vectors_config=config,
+            **kwargs,
+        )
 
     def delete_collection(self, collection_name: str):
         if not self.use_remote:
@@ -284,7 +282,7 @@ class DB:
 
     def add(
         self,
-        input: str,
+        input: str | dict,
         collection_name: str,
         time_added: float = None,
         **kwargs,
@@ -295,7 +293,7 @@ class DB:
         This method adds a document to a collection. The document should contain an `input` key with the document's input. Additional keys in the dictionary are treated as metadata for the document.
 
         Parameters:
-        - input (str): The document's input.
+        - input (str | dict): The document's input. If a dict, it must contain at least an "input" (or whatever the pseudonym is) key, to be used as the embedding vector.
         - collection_name (str): The name of the collection to add the document to.
         - time_added (float, optional): The time the document was added in Unix time. Defaults to time().
         - **kwargs: Additional keyword arguments to pass as metadata for the document.
@@ -308,25 +306,43 @@ class DB:
                 f'Collection "{collection_name}" not found in collections {self.get_collections()}. Make sure to load the pattern first or create the collection manually.'
             )
 
-        time_added = time_added or time()
+        metadata = self.get_metadata(collection_name=collection_name)
+
+        input_key = metadata.get("input_key", "input")
+        embedding_text = input
+        if isinstance(input, dict):
+            if input_key not in input:
+                raise ValueError(
+                    f'Input dict must contain "{input_key}" key, got {input.keys()}'
+                )
+            embedding_text = input[input_key]
 
         doc_id = str(uuid.uuid4())
+        time_added = time_added or time()
+
         self.client.upsert(
             collection_name=collection_name,
             points=[
                 models.PointStruct(
                     id=doc_id,
-                    vector=self.encoder.encode(input),
+                    vector=self.encoder.encode(embedding_text),
                     payload={
-                        **kwargs,
                         "input": input,
+                        "embedding_text": embedding_text,
                         "time_added": time_added,
+                        **kwargs,
                     },
                 )
             ],
         )
 
-        return {"input": input, "id": doc_id, **kwargs}
+        return {
+            "input": input,
+            "embedding_text": embedding_text,
+            "time_added": time_added,
+            "id": doc_id,
+            **kwargs,
+        }
 
     def get_metadata(
         self,
@@ -384,7 +400,7 @@ class DB:
         """Get the names of all collections in the database."""
         collections = self.client.scroll(
             collection_name=self.metadata_collection_name,
-            limit=500,
+            limit=99999,
         )[0]
         if len(collections) == 0:
             return []
@@ -398,7 +414,7 @@ class DB:
         """Get the names of all patterns in the database."""
         collections = self.client.scroll(
             collection_name=self.metadata_collection_name,
-            limit=500,
+            limit=99999,
         )[0]
         collections = [
             collection
@@ -452,9 +468,9 @@ class DB:
     def query(
         self,
         collection_name: str,
-        input: str = "",
+        input: str,
         n: int = DEFAULT_RESULT_COUNT,
-        min_d: Union[int, None] = None,
+        min_d: int = None,
         **kwargs,
     ) -> List[dict]:
         """
@@ -487,7 +503,7 @@ class DB:
         - collection_name (str): The name of the pattern or collection to query.
         - input (str): The input to match.
         - n (int, optional): The number of results to return. Defaults to DEFAULT_RESULT_COUNT.
-        - min_d (Union[int, None], optional): The maximum distance for a document to be considered a match. If None, no maximum distance is used.
+        - min_d (int, optional): The maximum distance for a document to be considered a match. If None, no maximum distance is used.
         - where (dict, optional): A dictionary of metadata filters to apply. Defaults to None.
 
         Returns:
@@ -507,11 +523,8 @@ class DB:
         else:
             collection_name = self.get_collection(collection_name)
 
-        if input == "":
-            raise ValueError("Input cannot be empty. Use where method instead.")
-
         if n == -1:
-            n = 20
+            n = 50
         elif n < 1:
             return []
 
@@ -603,9 +616,11 @@ class DB:
         metadata = self.get_metadata(collection_name=collection_name)
 
         if "time_added" in metadata:
-            if start:
+            if start and end:
+                kwargs["time_added"] = {"_and": [{"gte": start}, {"lte": end}]}
+            elif start:
                 kwargs["time_added"] = {"gte": start}
-            if end:
+            elif end:
                 kwargs["time_added"] = {"lte": end}
         elif order_by == "time_added":
             order_obj = None
@@ -621,7 +636,6 @@ class DB:
 
         results = [
             {
-                "input": doc.payload["input"],
                 "id": doc.id,
                 **doc.payload,
             }
@@ -642,6 +656,7 @@ class DB:
         - type (str): The type of index to create. Can be "keyword", "integer", "float", "bool", "geo", "datetime", or "text".
         """
         if not self.use_remote:
+            log.warn(f"Indexing is only supported for remote databases.")
             return
 
         if collection_name not in self.get_collections():
@@ -665,34 +680,6 @@ class DB:
             field_type=type,
         )
         log.info(f"Indexed {component} in {collection_name} as {type}")
-
-    @staticmethod
-    def load_from_file(path: str) -> dict:
-        """
-        Load data from a file.
-
-        This method reads a file and loads its contents into a dictionary. The file can be in either JSON or YAML format.
-
-        Parameters:
-        - path (str): The path to the file to read.
-
-        Returns:
-        - dict: The contents of the file as a dictionary.
-        """
-
-        if path.endswith(".json"):
-            with open(path) as f:
-                return json.load(f)
-        elif path.endswith(".yaml"):
-            with open(path) as f:
-                return yaml.load(f, Loader=yaml.FullLoader)
-        else:
-            raise TypeError(
-                'Filetype "{filetype}" not supported for "{file}"'.format(
-                    filetype=os.path.splitext(path)[1][1:],
-                    file=path,
-                )
-            )
 
     @staticmethod
     def filter_to_qdrant_filter(filter: dict) -> models.Filter:
