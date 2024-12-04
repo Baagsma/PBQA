@@ -92,10 +92,13 @@ class DB:
         examples: str | list[dict] = None,
         system_prompt: str = None,
         collection_name: str = None,
+        input_key: str = "input",
         **kwargs,
     ):
-        pattern_name = model.__class__.__name__.lower()
+        pattern_name = model.__name__.lower()
         collection_name = collection_name or pattern_name
+
+        log.info(f"Creating collection {collection_name} for pattern {pattern_name}")
 
         # Early conversion of file to examples if needed
         if isinstance(examples, str):
@@ -114,7 +117,9 @@ class DB:
             )
 
         # Generate hash for examples, model, and system prompt
-        hash = sha256(json.dumps((examples, model, system_prompt)).encode()).hexdigest()
+        hash = sha256(
+            json.dumps((examples, model.model_json_schema(), system_prompt)).encode()
+        ).hexdigest()
 
         # Handle existing collection with different hash
         if collection_name in self.get_collections():
@@ -125,7 +130,7 @@ class DB:
             # Verify pattern name matches
             if pattern_name != stored_pattern_name:
                 raise ValueError(
-                    f'Collection "{collection_name}" exists with different pattern name "{stored_pattern_name}". Delete collection first to overwrite.'
+                    f'Collection "{collection_name}" exists with different pattern name "{stored_pattern_name}". Delete collection first to overwrite'
                 )
 
             stored_hash = self.get_metadata(collection_name=collection_name)["hash"]
@@ -154,6 +159,7 @@ class DB:
                 "pattern_name": pattern_name,
                 "model": model.model_json_schema(),
                 "system_prompt": system_prompt,
+                "input_key": input_key,
                 "hash": hash,
                 "time_added": None,
                 **kwargs,
@@ -166,13 +172,12 @@ class DB:
 
         for example in examples:
             # Validate example against model schema
-            if not (
-                isinstance(example["assistant"], dict)
-                and example["assistant"] == model.model_validate(example["assistant"])
-            ):
+            try:
+                model.model_validate(example["assistant"])
+            except Exception as e:
                 raise ValueError(
-                    f"Example doesn't match model schema:\n{json.dumps(example['assistant'], indent=4)}"
-                )
+                    f"Example doesn't match model schema:\n{json.dumps(example['assistant'], indent=4)}\n\nSchema:\n{json.dumps(model.model_json_schema(), indent=4)}"
+                ) from e
 
             self.add(
                 input=example["user"],
@@ -537,11 +542,21 @@ class DB:
             score_threshold=min_d,
         )
 
+        metadata = self.get_metadata(collection_name=collection_name)
+
         results = [
             {
                 "input": doc.payload["input"],
-                "id": doc.id,
-                **doc.payload,
+                "response": {
+                    k: v
+                    for k, v in doc.payload.items()
+                    if k in self.get_model_keys(collection_name)
+                },
+                "metadata": {
+                    "id": doc.id,
+                    "distance": doc.score,
+                    **{k: v for k, v in doc.payload.items() if k in metadata.keys()},
+                },
             }
             for doc in docs
         ]
@@ -607,7 +622,7 @@ class DB:
             collection_name = self.get_collection(collection_name)
 
         if n == -1:
-            n = 20
+            n = 50
         elif n < 1:
             return []
 
@@ -635,13 +650,36 @@ class DB:
 
         results = [
             {
-                "id": doc.id,
-                **doc.payload,
+                "input": doc.payload["input"],
+                "response": {
+                    k: v
+                    for k, v in doc.payload.items()
+                    if k in self.get_model_keys(collection_name)
+                },
+                "metadata": {
+                    "id": doc.id,
+                    **{k: v for k, v in doc.payload.items() if k in metadata.keys()},
+                },
             }
             for doc in docs[0]
         ]
 
         return results
+
+    def get_model_keys(self, collection_name: str) -> List[str]:
+        """
+        Get the keys of the model components for a collection.
+
+        This method retrieves the keys of the model components for a collection.
+
+        Parameters:
+        - collection_name (str): The name of the collection to retrieve the keys for.
+
+        Returns:
+        - List[str]: The keys of the model components for the collection.
+        """
+        model = self.get_metadata(collection_name=collection_name)["model"]
+        return model["properties"].keys()
 
     def index(self, collection_name: str, component: str, type: str):
         """
