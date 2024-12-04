@@ -187,7 +187,7 @@ class DB:
             )
 
         log.info(f'Populated collection "{collection_name}" in {time() - prev:.3f} s')
-        self.index(collection_name, "time_added", "float")
+        self.index(collection_name, "metadata.time_added", "float")
 
     @staticmethod
     def load_from_file(path: str) -> dict:
@@ -312,6 +312,8 @@ class DB:
 
         metadata = self.get_metadata(collection_name=collection_name)
 
+        doc_id = str(uuid.uuid4())
+
         input_key = metadata.get("input_key", "input")
         embedding_text = input
         if isinstance(input, dict):
@@ -321,8 +323,25 @@ class DB:
                 )
             embedding_text = input[input_key]
 
-        doc_id = str(uuid.uuid4())
         time_added = time_added or time()
+
+        model_keys = self.get_model_keys(collection_name)
+
+        doc = {
+            "input": input,
+            "response": {k: v for k, v in kwargs.items() if k in model_keys},
+            "metadata": {
+                **{k: v for k, v in kwargs.items() if k not in model_keys},
+                "id": doc_id,
+                "embedding_text": embedding_text,
+                "time_added": time_added,
+            },
+        }
+
+        if set(doc["response"].keys()) != set(model_keys):
+            raise ValueError(
+                f"Provided response {doc['response'].keys()} does not match model keys {model_keys}"
+            )
 
         self.client.upsert(
             collection_name=collection_name,
@@ -330,23 +349,12 @@ class DB:
                 models.PointStruct(
                     id=doc_id,
                     vector=self.encoder.encode(embedding_text),
-                    payload={
-                        "input": input,
-                        "embedding_text": embedding_text,
-                        "time_added": time_added,
-                        **kwargs,
-                    },
+                    payload=doc,
                 )
             ],
         )
 
-        return {
-            "input": input,
-            "embedding_text": embedding_text,
-            "time_added": time_added,
-            "id": doc_id,
-            **kwargs,
-        }
+        return doc
 
     def get_metadata(
         self,
@@ -542,26 +550,17 @@ class DB:
             score_threshold=min_d,
         )
 
-        metadata = self.get_metadata(collection_name=collection_name)
-
-        results = [
+        return [
             {
                 "input": doc.payload["input"],
-                "response": {
-                    k: v
-                    for k, v in doc.payload.items()
-                    if k in self.get_model_keys(collection_name)
-                },
+                "response": doc.payload["response"],
                 "metadata": {
-                    "id": doc.id,
                     "distance": doc.score,
-                    **{k: v for k, v in doc.payload.items() if k in metadata.keys()},
+                    **doc.payload["metadata"],
                 },
             }
             for doc in docs
         ]
-
-        return results
 
     def where(
         self,
@@ -569,7 +568,7 @@ class DB:
         n: int = DEFAULT_RESULT_COUNT,
         start: float = None,
         end: float = None,
-        order_by: str = "time_added",
+        order_by: str = "metadata.time_added",
         order_direction: str = "desc",
         **kwargs,
     ) -> List[dict]:
@@ -629,13 +628,15 @@ class DB:
         order_obj = models.OrderBy(key=order_by, direction=order_direction)
         metadata = self.get_metadata(collection_name=collection_name)
 
+        log.info(f"Metadata: {metadata}")
+
         if "time_added" in metadata:
             if start and end:
-                kwargs["time_added"] = {"_and": [{"gte": start}, {"lte": end}]}
+                kwargs["metadata.time_added"] = {"_and": [{"gte": start}, {"lte": end}]}
             elif start:
-                kwargs["time_added"] = {"gte": start}
+                kwargs["metadata.time_added"] = {"gte": start}
             elif end:
-                kwargs["time_added"] = {"lte": end}
+                kwargs["metadata.time_added"] = {"lte": end}
         elif order_by == "time_added":
             order_obj = None
 
@@ -648,23 +649,14 @@ class DB:
             order_by=order_obj,
         )
 
-        results = [
+        return [
             {
                 "input": doc.payload["input"],
-                "response": {
-                    k: v
-                    for k, v in doc.payload.items()
-                    if k in self.get_model_keys(collection_name)
-                },
-                "metadata": {
-                    "id": doc.id,
-                    **{k: v for k, v in doc.payload.items() if k in metadata.keys()},
-                },
+                "response": doc.payload["response"],
+                "metadata": doc.payload["metadata"],
             }
             for doc in docs[0]
         ]
-
-        return results
 
     def get_model_keys(self, collection_name: str) -> List[str]:
         """
