@@ -20,12 +20,9 @@ class Weather(BaseModel):
 
 schema = Weather.model_json_schema()
 
-print(json.dumps(schema, indent=4))
-
-
-db = DB(host="localhost", port=6333, reset=True)
+db = DB(host="localhost", port=6333, auto_update=True)
 db.load_pattern(
-    model=Weather,
+    schema=Weather,
     examples="examples/temp_weather.yaml",
     system_prompt="Your job is to translate the user's input into a weather query object. The object contains the latitude, longitude, and time of the weather query. Reply with the json for the weather query and nothing else.",
 )

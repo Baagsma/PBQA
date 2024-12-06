@@ -88,14 +88,14 @@ class DB:
 
     def load_pattern(
         self,
-        model: BaseModel,
+        schema: BaseModel,
         examples: str | list[dict] = None,
         system_prompt: str = None,
         collection_name: str = None,
         input_key: str = "input",
         **kwargs,
     ):
-        pattern_name = model.__name__.lower()
+        pattern_name = schema.__name__.lower()
         collection_name = collection_name or pattern_name
 
         log.info(f"Creating collection {collection_name} for pattern {pattern_name}")
@@ -116,9 +116,9 @@ class DB:
                 f"Invalid examples format. Expected list of dicts with 'user' and 'assistant' keys, got:\n{json.dumps(examples, indent=4)}"
             )
 
-        # Generate hash for examples, model, and system prompt
+        # Generate hash for examples, schema, and system prompt
         hash = sha256(
-            json.dumps((examples, model.model_json_schema(), system_prompt)).encode()
+            json.dumps((examples, schema.model_json_schema(), system_prompt)).encode()
         ).hexdigest()
 
         # Handle existing collection with different hash
@@ -157,7 +157,7 @@ class DB:
             collection_name=collection_name,
             metadata={
                 "pattern_name": pattern_name,
-                "model": model.model_json_schema(),
+                "schema": schema.model_json_schema(),
                 "system_prompt": system_prompt,
                 "input_key": input_key,
                 "hash": hash,
@@ -173,10 +173,10 @@ class DB:
         for example in examples:
             # Validate example against model schema
             try:
-                model.model_validate(example["assistant"])
+                schema.model_validate(example["assistant"])
             except Exception as e:
                 raise ValueError(
-                    f"Example doesn't match model schema:\n{json.dumps(example['assistant'], indent=4)}\n\nSchema:\n{json.dumps(model.model_json_schema(), indent=4)}"
+                    f"Example doesn't match model schema:\n{json.dumps(example['assistant'], indent=4)}\n\nSchema:\n{json.dumps(schema.model_json_schema(), indent=4)}"
                 ) from e
 
             self.add(
@@ -325,22 +325,22 @@ class DB:
 
         time_added = time_added or time()
 
-        model_keys = self.get_model_keys(collection_name)
+        schema_keys = self.get_schema_keys(collection_name)
 
         doc = {
             "input": input,
-            "response": {k: v for k, v in kwargs.items() if k in model_keys},
+            "response": {k: v for k, v in kwargs.items() if k in schema_keys},
             "metadata": {
-                **{k: v for k, v in kwargs.items() if k not in model_keys},
+                **{k: v for k, v in kwargs.items() if k not in schema_keys},
                 "id": doc_id,
                 "embedding_text": embedding_text,
                 "time_added": time_added,
             },
         }
 
-        if set(doc["response"].keys()) != set(model_keys):
+        if set(doc["response"].keys()) != set(schema_keys):
             raise ValueError(
-                f"Provided response {doc['response'].keys()} does not match model keys {model_keys}"
+                f"Provided response {doc['response'].keys()} does not match schema keys {schema_keys}"
             )
 
         self.client.upsert(
@@ -658,20 +658,20 @@ class DB:
             for doc in docs[0]
         ]
 
-    def get_model_keys(self, collection_name: str) -> List[str]:
+    def get_schema_keys(self, collection_name: str) -> List[str]:
         """
-        Get the keys of the model components for a collection.
+        Get the keys of the schema components for a collection.
 
-        This method retrieves the keys of the model components for a collection.
+        This method retrieves the keys of the schema components for a collection.
 
         Parameters:
         - collection_name (str): The name of the collection to retrieve the keys for.
 
         Returns:
-        - List[str]: The keys of the model components for the collection.
+        - List[str]: The keys of the schema components for the collection.
         """
-        model = self.get_metadata(collection_name=collection_name)["model"]
-        return model["properties"].keys()
+        schema = self.get_metadata(collection_name=collection_name)["schema"]
+        return schema["properties"].keys()
 
     def index(self, collection_name: str, component: str, type: str):
         """
