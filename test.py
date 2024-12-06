@@ -3,8 +3,8 @@ from typing import Annotated, List
 
 import requests
 from pydantic import BaseModel, Extra, Field
-from time import time
-from PBQA import DB
+from time import time, strftime
+from PBQA import DB, LLM
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -25,6 +25,7 @@ db.load_pattern(
     schema=Weather,
     examples="examples/temp_weather.yaml",
     system_prompt="Your job is to translate the user's input into a weather query object. The object contains the latitude, longitude, and time of the weather query. Reply with the json for the weather query and nothing else.",
+    input_key="query",
 )
 
 most_similar = db.query(
@@ -40,30 +41,21 @@ most_recent = db.where(
 )
 print(json.dumps(most_recent, indent=4))
 
-# data = {
-#     "model": "llama",
-#     "id_slot": 0,
-#     "cache_prompt": True,
-#     "messages": messages,
-#     "json_schema": schema,
-#     "temperature": 0,
-#     "stop": ["<|eot_id|>", "<|start_header_id|>", "<|im_end|>"],
-# }
 
-# try:
-#     print(f"Sending request to LLM")
-#     then = time()
-#     response = requests.post(
-#         "http://192.168.0.91:8080/v1/chat/completions",
-#         headers={
-#             "Content-Type": "application/json",
-#             "Authorization": "Bearer no-key",
-#         },
-#         data=json.dumps(data),
-#     )
-#     response = response.json()
-#     print(f"Response in {time() - then:.3f} s")
-#     print(response["choices"][0]["message"]["content"])
-#     print(response["usage"])
-# except KeyError as e:
-#     print(f"Request to LLM failed: {response}")
+llm = LLM(db=db, host="192.168.0.91")
+llm.connect_model(
+    model="llama",
+    port=8080,
+    stop=["<|eot_id|>", "<|start_header_id|>", "<|im_end|>"],
+)
+
+weather_query = llm.ask(
+    input={
+        "query": "What will the weather be like tomorrow at 10:00?",
+        "now": strftime("%Y-%m-%d %H:%M"),
+    },
+    pattern="weather",
+    model="llama",
+)
+
+print(json.dumps(weather_query, indent=4))

@@ -118,7 +118,9 @@ class DB:
 
         # Generate hash for examples, schema, and system prompt
         hash = sha256(
-            json.dumps((examples, schema.model_json_schema(), system_prompt)).encode()
+            json.dumps(
+                (examples, schema.model_json_schema(), system_prompt, input_key)
+            ).encode()
         ).hexdigest()
 
         # Handle existing collection with different hash

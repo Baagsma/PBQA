@@ -1,8 +1,8 @@
 import json
-from json import dumps, loads
 import logging
 from time import time
 from typing import List, Union
+from pydantic import BaseModel
 
 import requests
 import yaml
@@ -44,8 +44,8 @@ class LLM:
         model: str,
         port: int,
         host: str = None,
-        temperature: float = 1.2,
-        min_p: float = 0.07,
+        temperature: float = 1.0,
+        min_p: float = 0.02,
         top_p: float = 1.0,
         max_tokens: int = 4096,
         stop: List[str] = [],
@@ -75,8 +75,10 @@ class LLM:
             raise ValueError("Failed to connect to LLM server. No host provided.")
 
         props = self.get_props(host, port)
-        if props != {}:
-            log.info(f'Connected to model "{model}" at {host}:{port}')
+        if props == {}:
+            raise ValueError(f"Failed to connect to LLM server at {host}:{port}")
+
+        log.info(f'Connected to model "{model}" at {host}:{port}')
 
         self.models[model] = {
             "host": host,
@@ -119,25 +121,22 @@ class LLM:
 
     def _get_response(
         self,
-        input: str,
+        input: str | dict,
         pattern: str,
         model: str = None,
-        external: dict[str, str] = {},
-        history_name: str = None,
         system_prompt: str = None,
+        history_name: str = None,
         include_system_prompt: bool = True,
         include_base_examples: bool = True,
-        include: List[str] = [],
-        exclude: List[str] = [],
         n_hist: int = 0,
         n_example: int = 0,
         min_d: float = None,
         use_cache: bool = True,
         cache_slot: int = None,
-        grammar: str = None,
+        schema: BaseModel = None,
         stop: List[str] = [],
         **kwargs,
-    ) -> json:
+    ) -> dict:
         """
         Get a response from the LLM server.
 
@@ -145,28 +144,27 @@ class LLM:
         - input (str): The input to the LLM.
         - pattern (str): The pattern to use for generating the response.
         - model (str): The model to use for generating the response.
-        - external (dict[str, str]): External data to include in the response.
-        - history_name (str): The name of the history to use for generating the response.
         - system_prompt (str): The system prompt to provide to the LLM.
+        - history_name (str): The name of the history to use for generating the response.
         - include_system_prompt (bool): Whether to include the system message.
         - include_base_examples (bool): Whether to include the base examples.
-        - include (List[str]): components to include in the response.
-        - exclude (List[str]): components to exclude from the response.
         - n_hist (int): The number of historical examples to load from the database.
         - n_example (int): The number of examples to load from the database.
         - min_d (float): The minimum distance between the input and the examples.
         - use_cache (bool): Whether to use the cache for the response.
         - cache_slot (int): The cache slot to use for the response.
-        - grammar (str): The grammar to use for the response.
+        - schema (BaseModel): The schema to use for the response.
         - stop (List[str]): Strings to stop the response generation.
         - kwargs: Additional arguments to pass when querying the database.
 
         Returns:
-        - json: The response from the LLM.
+        - dict: The response from the LLM.
         """
 
-        prev = time()
-        log.info(f"Generating response from LLM")
+        if pattern not in self.db.get_patterns():
+            raise ValueError(
+                f'Pattern "{pattern}" not found in patterns {self.db.get_patterns()}. Make sure to load the pattern first using the `db.load_pattern()` method.'
+            )
 
         if not model:
             model = self.pattern_models.get(pattern, None)
@@ -182,14 +180,8 @@ class LLM:
                 f'Model "{model}" not found in models {self.models.keys()}. Make sure to connect the model first using the `llm.connect_model()` method.'
             )
 
-        metadata = self.db.get_metadata(pattern)
-
-        if not_present_components := [
-            e for e in exclude if e not in metadata["components"] and e != "input"
-        ]:
-            raise ValueError(
-                f'Components {not_present_components} to exclude not found in pattern "{pattern}"'
-            )
+        prev = time()
+        log.info(f"Generating response from LLM")
 
         if cache_slot is None or cache_slot >= self.models[model].get(
             "total_slots", 1096
@@ -202,13 +194,10 @@ class LLM:
 
         messages = self._format_messages(
             input=input,
-            external=external,
             pattern=pattern,
-            include=include,
-            exclude=exclude,
+            system_prompt=system_prompt,
             history_name=history_name,
             include_base_examples=include_base_examples,
-            system_prompt=system_prompt,
             include_system_prompt=include_system_prompt,
             n_hist=n_hist,
             n_example=n_example,
@@ -216,10 +205,7 @@ class LLM:
             **kwargs,
         )
 
-        grammar = grammar or self._format_master_grammar(
-            pattern=pattern,
-            exclude=exclude,
-        )
+        metadata = self.db.get_metadata(pattern)
 
         parameters = {**self.models[model], **kwargs}
 
@@ -228,7 +214,7 @@ class LLM:
             "id_slot": cache_slot,
             "cache_prompt": use_cache,
             "messages": messages,
-            "grammar": grammar,
+            "json_schema": schema or metadata["schema"],
             "stop": parameters.get("stop", []) + stop,
             **parameters,
         }
@@ -245,29 +231,46 @@ class LLM:
                 "Content-Type": "application/json",
                 "Authorization": "Bearer no-key",
             }
-            llm_response = requests.post(url, headers=headers, data=dumps(data)).json()
+            raw_response = requests.post(
+                url, headers=headers, data=json.dumps(data)
+            ).json()
+            llm_response = json.loads(raw_response["choices"][0]["message"]["content"])
+            log.info(f"Response:\n{json.dumps(llm_response, indent=4)}")
         except requests.exceptions.RequestException as e:
             raise ValueError(
                 f"Request to LLM failed: {str(e)}\n\nEnsure the llama.cpp server is running."
             )
 
-        log.info(f"Response:\n{yaml.dump(llm_response, default_flow_style=False)}")
+        metrics = {}
+        try:
+            url = f"http://{parameters['host']}:{parameters['port']}/metrics"
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": "Bearer no-key",
+            }
+            metrics = prom_to_json(requests.get(url, headers=headers).text)
 
-        log.info(
-            f"Generated response in {time() - prev:.3f} s ({llm_response['usage']['completion_tokens']/(time() - prev):.1f} t/s)"
-        )
-        return llm_response
+            log.info(f"Metrics:\n{metrics}")
+        except requests.exceptions.RequestException as e:
+            log.warn(
+                f"Failed to get metrics from LLM server at {parameters['host']}:{parameters['port']}. Ensure the server is running with the --metrics flag."
+            )
+
+        return {
+            "input": input,
+            "response": llm_response,
+            "metadata": {
+                "metrics": metrics,
+            },
+        }
 
     def _format_messages(
         self,
         pattern: str,
-        include: List[str] = [],
-        exclude: List[str] = [],
-        input: str = None,
-        external: dict[str, str] = {},
+        input: str | dict = None,
+        system_prompt: str = None,
         history_name: str = None,
         include_base_examples: bool = True,
-        system_prompt: str = None,
         include_system_prompt: bool = True,
         n_example: int = 0,
         n_hist: int = 0,
@@ -282,13 +285,10 @@ class LLM:
 
         Parameters:
         - pattern (str): The pattern to use for generating the response.
-        - exclude (List[str]): components to exclude from the response.
         - input (str): The input to the LLM.
-        - include (List[str]): components to include in the response.
-        - external (dict[str, str]): External components to include in the response.
+        - system_prompt (str): The system prompt to provide to the LLM.
         - history_name (str): The name of the history to use for generating the response.
         - include_base_examples (bool): Whether to include the base messages.
-        - system_prompt (str): The system prompt to provide to the LLM.
         - include_system_prompt (bool): Whether to include the system message.
         - n_example (int): The number of examples to load from the database.
         - n_hist (int): The number of historical examples to load from the database.
@@ -306,137 +306,87 @@ class LLM:
         log.info(yaml.dump(metadata, default_flow_style=False))
 
         def format(
-            responses: list[dict],
-            components: List[str] = metadata["components"],
-            external: dict[str, str] = external,
-            include: List[str] = include,
-            exclude: List[str] = exclude,
+            docs: list[dict],
             user: str = user_name,
             assistant: str = assistant_name,
         ) -> list[dict[str, str]]:
-            if not responses:
+            if not docs:
                 return []
 
-            external_keys_set = set(external.keys())
-
-            components = [item for item in components if not include or item in include]
-            components.append(
-                "input"
-            )  # input is appended to the end of the list to ensure it is the last component in the message on the user side. This is helpful if a history is prepended externally.
-
-            user_components = [
-                item
-                for item in components
-                if (item in external_keys_set or item == "input")
-                and item not in exclude
-            ]
-
-            assistant_components = [
-                item
-                for item in components
-                if item not in external_keys_set
-                and item not in exclude
-                and item != "input"
-            ]
-
-            def format_role(
-                role: str,
-                response: dict,
-                components: List[str],
-            ) -> dict[str, str]:
-                try:
-                    if len(components) == 1:
-                        return {"role": role, "content": response[components[0]]}
-                    else:
-                        return {
-                            "role": role,
-                            "content": dumps(
-                                {comp: response[comp] for comp in components}
-                            ),
-                        }
-                except KeyError:
-                    raise KeyError(
-                        f"Failed to format role {role}. Missing component(s) {[comp for comp in components if comp not in response.keys()]}. Make sure to provide all components in the response and to save the response with the correct components."
-                    )
-
-            formatted_responses = []
-
-            for response in responses:
-                formatted_responses.append(
+            messages = []
+            for doc in docs:
+                messages.append(
                     format_role(
                         user,
-                        response,
-                        user_components,
+                        doc["input"],
                     )
                 )
-
-                formatted_responses.append(
+                messages.append(
                     format_role(
                         assistant,
-                        response,
-                        assistant_components,
+                        doc["response"],
                     )
                 )
 
-            return formatted_responses
+            return messages
+
+        def format_role(
+            role: str,
+            doc: str | dict,
+        ) -> dict[str, str]:
+            if type(doc) == str:
+                return {"role": role, "content": doc}
+            if len(doc) == 1:
+                return {"role": role, "content": doc[doc.keys()[0]]}
+            else:
+                return {
+                    "role": role,
+                    "content": json.dumps(doc),
+                }
 
         messages = []
 
-        if include_system_prompt and (
-            "system_prompt" in metadata.keys() or system_prompt
-        ):
+        system_prompt = system_prompt or metadata.get("system_prompt", None)
+        if include_system_prompt and system_prompt:
             messages += [
-                (
-                    {
-                        "role": "system",
-                        "content": system_prompt or metadata["system_prompt"],
-                    }
-                )
+                {
+                    "role": "system",
+                    "content": system_prompt,
+                }
             ]
 
         if include_base_examples:
-            n_base_example = 50
-
             base_examples = self.db.where(
                 collection_name=pattern,
-                n=n_base_example,
-                base_example={"eq": True},
+                n=999,
+                **{"metadata.base_example": {"eq": True}},
             )
-
             base_examples.reverse()
-
             messages += format(base_examples)
 
-        examples = []
         if input:
-            components = [
-                comp for comp in metadata["components"] if comp not in exclude
-            ]
-
-            component_filter = (
-                {"_or": [{comp: {"ne": 0}} for comp in components]}
-                if len(components) > 1
-                else {components[0]: {"ne": 0}}
-            )  # Ensure that at least one component from the pattern is present in the example response
-
-            where_filter = {
-                "_and": [
-                    component_filter,
-                    {"base_example": {"ne": True}},
-                ]
-            }
-
-            if kwargs:
-                where_filter["_and"].append(kwargs)
+            query_input = input
+            if type(input) == dict:
+                try:
+                    query_input = input[metadata["input_key"]]
+                except KeyError:
+                    raise ValueError(
+                        f"Input dict must contain key {metadata['input_key']}, got {input.keys()}"
+                    )
 
             examples = self.db.query(
                 pattern,
-                input,
+                query_input,
                 n=n_example,
                 min_d=min_d,
-                **where_filter,
+                **{
+                    "metadata.base_example": {"ne": True},
+                    **kwargs,
+                },
             )
             messages += format(examples)
+
+        log.info(f"Examples: {len(examples)}/{n_example}")
 
         hist = []
         if n_hist:
@@ -445,29 +395,21 @@ class LLM:
                 start=time() - hist_duration,
                 end=time(),
                 n=n_hist,
-                base_example={"ne": True},
-            )  # TODO: If len(hist) == n_hist, remove n oldest responses
+                **{"metadata.base_example": {"ne": True}},
+            )  # TODO: If len(hist) == n_hist, remove n oldest responses - something something modulo
+
+            # Assert that the history is sorted by time_added
+            assert hist == sorted(
+                hist, key=lambda x: x["metadata"]["time_added"], reverse=True
+            ), f"Expected the history to be sorted by time_added, got {json.dumps(hist, indent=4)}"
 
             hist.reverse()
 
-        input_response = {
-            "input": input,
-            **external,
-            **{
-                comp: ""
-                for comp in components
-                if comp not in external and comp not in exclude
-            },
-        }
+            messages += format(hist)
 
-        hist.append(input_response)
+        log.info(f"History: {len(hist)}/{n_hist}")
 
-        messages += format(hist)
-
-        messages = messages[:-1]  # The format method adds a vestigial assistant message
-
-        log.info(f"Examples: {len(examples)}/{n_example}")
-        log.info(f"History: {len(hist) - 1}/{n_hist}")
+        messages.append(format_role(user_name, input))
 
         log.info(
             "Messages:\n"
@@ -480,69 +422,6 @@ class LLM:
         )
 
         return messages
-
-    def _format_master_grammar(
-        self,
-        pattern: str,
-        exclude: List[str] = [],
-    ) -> str:
-        """
-        Format the master grammar for the LLM.
-
-        Parameters:
-        - pattern (str): The pattern to use for generating the response.
-        - exclude (List[str]): components to exclude from the pattern.
-
-        Returns:
-        - str: The formatted master grammar.
-        """
-
-        metadata = self.db.get_metadata(pattern)
-
-        grammars = {}
-
-        for comp in metadata["components"]:
-            if comp in exclude + ["input", "time_added"] or (
-                metadata[comp] and metadata[comp].get("external", False)
-            ):
-                continue
-
-            try:
-                grammars[comp] = metadata[comp]["grammar"]
-            except TypeError:
-                grammars[comp] = None
-
-        if len(grammars) == 0:
-            return None
-
-        if len(grammars) == 1:
-            return grammars[
-                list(grammars.keys())[0]
-            ]  # If there is only one component, return the grammar for that component
-
-        grammar = 'root ::= "{"'
-
-        for comp, value in grammars.items():
-            grammar += f' "\\"{comp}\\": " {comp + "-gram" if value else "string"} ", "'
-
-        grammar = grammar[:-3]  # Remove the trailing comma and space
-
-        # TODO: Improve string grammar
-        grammar += """}"
-
-string ::=
-    "\\"" (
-    [^\\"]
-    )* "\\""
-
-"""
-
-        for comp in grammars:
-            if not grammars[comp]:
-                continue
-            grammar += f"{comp + '-gram'}" + grammars[comp].split("root")[1] + "\n\n"
-
-        return grammar
 
     def link(
         self,
@@ -617,20 +496,16 @@ string ::=
         input: str,
         pattern: str,
         model: str = None,
-        external: dict[str, str] = {},
-        return_external: bool = False,
-        history_name: str = None,
         system_prompt: str = None,
+        history_name: str = None,
         include_system_prompt: bool = True,
         include_base_examples: bool = True,
-        include: List[str] = [],
-        exclude: List[str] = [],
         n_hist: int = 0,
         n_example: int = 0,
         min_d: float = None,
         use_cache: bool = True,
         cache_slot: int = None,
-        grammar: str = None,
+        schema: BaseModel = None,
         stop: List[str] = [],
         **kwargs,
     ) -> dict:
@@ -662,67 +537,51 @@ string ::=
         - Union[str, dict]: The response from the LLM.
         """
 
-        if pattern not in self.db.get_patterns():
-            raise ValueError(
-                f'Pattern "{pattern}" not found in patterns {self.db.get_patterns()}. Make sure to load the pattern first using the `db.load_pattern()` method.'
-            )
-
-        metadata = self.db.get_metadata(pattern)
-
-        external_components = [
-            comp
-            for comp in metadata["components"]
-            if metadata[comp]
-            and comp not in exclude
-            and metadata[comp].get("external", False)
-        ]
-        if not set(external_components).issubset(set(external.keys())):
-            raise ValueError(
-                f"External components {external_components} not found in external components {external}. Make sure to all external components are provided, e.g. external={{'location': 'Amsterdam'}}."
-            )
-
         output = self._get_response(
             input=input,
             pattern=pattern,
             model=model,
-            include=include,
-            external=external,
-            history_name=history_name,
             system_prompt=system_prompt,
+            history_name=history_name,
             include_system_prompt=include_system_prompt,
             include_base_examples=include_base_examples,
-            exclude=exclude,
             n_hist=n_hist,
             n_example=n_example,
             min_d=min_d,
             use_cache=use_cache,
             cache_slot=cache_slot,
-            grammar=grammar,
+            schema=schema,
             stop=stop,
             **kwargs,
         )
 
-        content = output["choices"][0]["message"]["content"]
-        expected_components = (
-            set(metadata["components"])
-            - set(exclude + ["time_added"])
-            - set(external.keys())
-        )
+        return output
 
-        if len(expected_components) == 1:
-            response = {metadata["components"][0]: content}
-        else:
-            try:  # Ensure that the response is a valid JSON object
-                response = json.loads(content)
-            except json.JSONDecodeError:
-                try:
-                    response = json.loads(json.dumps(content))
-                except json.JSONDecodeError:
-                    raise ValueError(
-                        f'Failed to parse response from LLM:\n\t{content}\n\nMake sure to that strings in the "{pattern}" pattern grammars are properly escaped with double quotes ("\\"...\\"") when returning multiple components.'
-                    )
 
-        if return_external:
-            response.update({comp: external[comp] for comp in external_components})
+def prom_to_json(prom: str) -> dict:
+    """
+    Convert a Prometheus metrics string to a JSON object.
 
-        return response
+    Parameters:
+    - prom (str): The Prometheus metrics string.
+
+    Returns:
+    - dict: The JSON object.
+    """
+    lines = prom.split("\n")
+    metrics = {}
+    for line in lines:
+        if line.startswith("#"):
+            continue
+        if len(line) == 0:
+            continue
+
+        parts = line.split(" ")
+        log.warn(f"Part: {parts}")
+
+        metric_name = parts[0].removeprefix("llamacpp:")
+        metric_value = parts[1]
+
+        metrics[metric_name] = metric_value
+
+    return metrics
