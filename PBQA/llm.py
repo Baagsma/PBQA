@@ -367,12 +367,11 @@ class LLM:
         if input:
             query_input = input
             if type(input) == dict:
-                try:
-                    query_input = input[metadata["input_key"]]
-                except KeyError:
+                if metadata.get("input_key", "input") not in input:
                     raise ValueError(
-                        f"Input dict must contain key {metadata['input_key']}, got {input.keys()}"
+                        f"Input dict must contain {metadata['input_key']} key, got {input.keys()}"
                     )
+                query_input = input[metadata["input_key"]]
 
             examples = self.db.query(
                 pattern,
