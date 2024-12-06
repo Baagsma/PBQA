@@ -302,9 +302,6 @@ class LLM:
         - list[dict[str, str]]: The formatted messages.
         """
 
-        metadata = self.db.get_metadata(pattern)
-        log.info(yaml.dump(metadata, default_flow_style=False))
-
         def format(
             docs: list[dict],
             user: str = user_name,
@@ -346,6 +343,7 @@ class LLM:
 
         messages = []
 
+        metadata = self.db.get_metadata(pattern)
         system_prompt = system_prompt or metadata.get("system_prompt", None)
         if include_system_prompt and system_prompt:
             messages += [
@@ -363,6 +361,8 @@ class LLM:
             )
             base_examples.reverse()
             messages += format(base_examples)
+
+        log.info(f"Base examples: {len(base_examples)}")
 
         if input:
             query_input = input
@@ -509,31 +509,27 @@ class LLM:
         **kwargs,
     ) -> dict:
         """
-        Ask the LLM a question.
+        Ask the LLM a question or generate a response.
 
         Parameters:
         - input (str): The input to the LLM.
         - pattern (str): The pattern to use for generating the response.
-        - model (str): The model to use for generating the response. If None, the model assigned during the last appropriate `llm.link()` call is used.
-        - external (dict[str, str]): External data to include in the response.
-        - return_external (bool): Whether to return the external data in the response.
-        - history_name (str): The name of the history to use for generating the response.
+        - model (str): The model to use for generating the response.
         - system_prompt (str): The system prompt to provide to the LLM.
+        - history_name (str): The name of the history to use for generating the response.
         - include_system_prompt (bool): Whether to include the system message.
         - include_base_examples (bool): Whether to include the base examples.
-        - include (List[str]): components to include in the response.
-        - exclude (List[str]): components to exclude from the response.
         - n_hist (int): The number of historical examples to load from the database.
         - n_example (int): The number of examples to load from the database.
         - min_d (float): The minimum distance between the input and the examples.
         - use_cache (bool): Whether to use the cache for the response.
-        - cache_slot (int): The ID of the cache/process slot to use for the response.
-        - grammar (str): The grammar to use for the response.
+        - cache_slot (int): The cache slot to use for the response.
+        - schema (BaseModel): The schema to use for the response.
         - stop (List[str]): Strings to stop the response generation.
         - kwargs: Additional arguments to pass when querying the database.
 
         Returns:
-        - Union[str, dict]: The response from the LLM.
+        - dict: The response from the LLM.
         """
 
         output = self._get_response(
