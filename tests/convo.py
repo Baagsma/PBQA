@@ -30,7 +30,7 @@ db.load_pattern(
     system_prompt="You are a virtual assistant. You are here to help where you can or simply engage in conversation.",
 )
 
-llm = LLM(db=db, host="192.168.0.91")
+llm = LLM(db=db, host="localhost")
 llm.connect_model(
     model="llama",
     port=8080,

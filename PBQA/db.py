@@ -5,11 +5,11 @@ import uuid
 from hashlib import sha256
 from time import time
 from typing import List
-from pydantic import BaseModel
 
 import requests
 import yaml
 from dateutil.parser import parse
+from pydantic import BaseModel
 from qdrant_client import QdrantClient, models
 from sentence_transformers import SentenceTransformer
 

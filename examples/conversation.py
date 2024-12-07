@@ -1,9 +1,19 @@
-from PBQA import DB, LLM
 import logging
 
+from pydantic import BaseModel
 
-db = DB(path="examples/db")
-db.load_pattern("examples/conversation.yaml")
+from PBQA import DB, LLM
+
+
+class Conversation(BaseModel):
+    reply: str
+
+
+db = DB("examples/db")
+db.load_pattern(
+    schema=Conversation,
+    system_prompt="You are a virtual assistant. You are here to help where you can or simply engage in conversation.",
+)
 
 llm = LLM(db=db, host="localhost")
 llm.connect_model(
@@ -20,7 +30,7 @@ while True:
         pattern="conversation",
         model="llama",
         n_hist=50,
-    )
+    )["response"]
 
     db.add(
         input=user_input,

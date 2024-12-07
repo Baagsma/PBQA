@@ -1,10 +1,27 @@
-from PBQA import DB, LLM
-from time import strftime
-import datetime
 from json import dumps
+from time import strftime
+from typing import Annotated
 
-db = DB(path="examples/db")
-db.load_pattern("examples/weather.yaml")
+from pydantic import BaseModel, Field
+
+from PBQA import DB, LLM
+
+
+class Weather(BaseModel):
+    latitude: float
+    longitude: float
+    time: Annotated[
+        str, Field(pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}$")
+    ]
+
+
+db = DB("examples/db")
+db.load_pattern(
+    schema=Weather,
+    examples="examples/weather.yaml",
+    system_prompt="Your job is to translate the user's input into a weather query object. The object contains the latitude, longitude, and time of the weather query. Reply with the json for the weather query and nothing else.",
+    input_key="query",
+)
 
 llm = LLM(db=db, host="localhost")
 llm.connect_model(
@@ -15,13 +32,15 @@ llm.connect_model(
 )
 
 initial_response = llm.ask(
-    input="Is it going to rain tonight at home?",
+    input={
+        "query": "Is it going to rain tonight at home?",
+        "now": strftime("%Y-%m-%d %H:%M"),
+    },
     pattern="weather",
     model="llama",
-    external={"now": strftime("%Y-%m-%d %H:%M")},
-    n_example=1,
-    feedback=True,
-)
+    n_example=2,
+    **{"metadata.feedback": True},
+)["response"]
 
 print(f"Initial response:\n{dumps(initial_response, indent=4)}\n")
 
@@ -47,12 +66,14 @@ db.add(
 # )
 
 feedback_response = llm.ask(
-    input="Is it going to rain tonight at home?",
+    input={
+        "query": "Is it going to rain tonight at home?",
+        "now": strftime("%Y-%m-%d %H:%M"),
+    },
     pattern="weather",
     model="llama",
-    external={"now": strftime("%Y-%m-%d %H:%M")},
-    n_example=1,
-    feedback=True,
-)
+    n_example=2,
+    **{"metadata.feedback": True},
+)["response"]
 
 print(f"Feedback response:\n{dumps(feedback_response, indent=4)}\n")
