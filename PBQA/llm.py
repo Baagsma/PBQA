@@ -246,7 +246,6 @@ class LLM:
             raw_response = requests.post(
                 url, headers=headers, data=json.dumps(data)
             ).json()
-            log.warn(f"Raw response:\n{json.dumps(raw_response, indent=4)}")
             content = raw_response["choices"][0]["message"]["content"]
             llm_response = json.loads(content) if schema else content
             log.info(f"Response:\n{json.dumps(llm_response, indent=4)}")
