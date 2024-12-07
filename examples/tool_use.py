@@ -85,7 +85,7 @@ class Agent:
         }
 
 
-db = DB(host="localhost", port=6333, reset=True)
+db = DB("examples/db")
 db.load_pattern(
     schema=Weather,
     examples="examples/weather.yaml",
@@ -99,7 +99,7 @@ db.load_pattern(
     input_key="query",
 )
 
-llm = LLM(db=db, host="192.168.0.91")
+llm = LLM(db=db, host="localhost")
 llm.connect_model(
     model="llama",
     port=8080,

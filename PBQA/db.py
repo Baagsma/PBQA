@@ -164,7 +164,9 @@ class DB:
                 "system_prompt": system_prompt,
                 "input_key": input_key,
                 "hash": hash,
-                "time_added": None,
+                "doc_metadata_properties": [
+                    "time_added",
+                ],
                 **kwargs,
             },
         )
@@ -366,7 +368,34 @@ class DB:
             ],
         )
 
+        if "schema" in metadata:
+            self._add_metadata_props(collection_name, doc_metadata.keys())
+
         return doc
+
+    def _add_metadata_props(self, collection_name: str, new_props: list[str]):
+        current_props = self.get_metadata(collection_name=collection_name)[
+            "doc_metadata_properties"
+        ]
+        new_props = list(set(new_props).union(set(current_props)))
+        if new_props == current_props:
+            return
+
+        log.info(
+            f"Updating {collection_name} metadata doc_metadata_properties to {new_props}"
+        )
+        self.client.set_payload(
+            collection_name=self.metadata_collection_name,
+            payload={"doc_metadata_properties": new_props},
+            points=models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="collection_name",
+                        match=models.MatchValue(value=collection_name),
+                    )
+                ]
+            ),
+        )
 
     def get_metadata(
         self,
@@ -541,7 +570,7 @@ class DB:
 
         collection_name = self._get_collection_name(collection_name)
 
-        query_filter = self.filter_to_qdrant_filter(kwargs)
+        query_filter = self.filter_to_qdrant_filter(kwargs, collection_name)
 
         docs = self.client.search(
             collection_name=collection_name,
@@ -560,7 +589,7 @@ class DB:
         n: int = DEFAULT_RESULT_COUNT,
         start: float = None,
         end: float = None,
-        order_by: str = None,
+        order_by: str = "time_added",
         order_direction: str = "desc",
         **kwargs,
     ) -> List[dict]:
@@ -608,28 +637,39 @@ class DB:
         metadata = self.get_metadata(collection_name=collection_name)
         has_schema = "schema" in metadata
 
-        time_added_key = "metadata.time_added" if has_schema else "time_added"
-        order_by = order_by or time_added_key
-        order_obj = models.OrderBy(key=order_by, direction=order_direction)
+        schema_properties = (
+            metadata["schema"]["properties"].keys() if has_schema else []
+        )
+        metadata_properties = metadata.get("doc_metadata_properties", [])
 
-        if "time_added" in metadata:
+        if order_by in schema_properties:
+            order_by = f"response.{order_by}"
+        if order_by in metadata_properties:
+            order_by = f"metadata.{order_by}"
+
+        order_obj = models.OrderBy(
+            key=order_by,
+            direction=order_direction,
+        )
+
+        if "time_added" in metadata_properties:
             if start and end:
                 if "_and" in kwargs:
-                    kwargs["_and"].append({time_added_key: {"gte": start}})
-                    kwargs["_and"].append({time_added_key: {"lte": end}})
+                    kwargs["_and"].append({"time_added": {"gte": start}})
+                    kwargs["_and"].append({"time_added": {"lte": end}})
                 else:
                     kwargs["_and"] = [
-                        {time_added_key: {"gte": start}},
-                        {time_added_key: {"lte": end}},
+                        {"time_added": {"gte": start}},
+                        {"time_added": {"lte": end}},
                     ]
             elif start:
-                kwargs[time_added_key] = {"gte": start}
+                kwargs["time_added"] = {"gte": start}
             elif end:
-                kwargs[time_added_key] = {"lte": end}
-        elif order_by in ["time_added", "metadata.time_added"]:
+                kwargs["time_added"] = {"lte": end}
+        elif order_by == "time_added":
             order_obj = None
 
-        scroll_filter = self.filter_to_qdrant_filter(kwargs)
+        scroll_filter = self.filter_to_qdrant_filter(kwargs, collection_name)
 
         docs = self.client.scroll(
             collection_name=collection_name,
@@ -733,10 +773,23 @@ class DB:
         )
         log.info(f"Indexed {component} in {collection_name} as {type}")
 
-    @staticmethod
-    def filter_to_qdrant_filter(filter: dict) -> models.Filter:
+    def filter_to_qdrant_filter(
+        self,
+        filter: dict,
+        collection_name: str = None,
+    ) -> models.Filter:
         if not filter or not filter.keys():
             return None
+
+        schema_properties = []
+        metadata_properties = []
+
+        if collection_name:
+            metadata = self.get_metadata(collection_name=collection_name)
+            schema_properties = (
+                metadata["schema"]["properties"].keys() if "schema" in metadata else []
+            )
+            metadata_properties = metadata.get("doc_metadata_properties", [])
 
         def process_filter(key, value):
             if isinstance(value, dict):
@@ -748,6 +801,11 @@ class DB:
                 range = models.DatetimeRange()
             else:
                 range = models.Range()
+
+            if key in schema_properties:
+                key = f"response.{key}"
+            elif key in metadata_properties:
+                key = f"metadata.{key}"
 
             if key == "_and":
                 if not isinstance(operand, List):

@@ -374,7 +374,7 @@ class LLM:
             base_examples = self.db.where(
                 collection_name=pattern,
                 n=999,
-                **{"metadata.base_example": {"eq": True}},
+                base_example=True,
             )
             base_examples.reverse()
             messages += format(base_examples)
@@ -395,10 +395,8 @@ class LLM:
                 query_input,
                 n=n_example,
                 min_d=min_d,
-                **{
-                    "metadata.base_example": {"ne": True},
-                    **kwargs,
-                },
+                base_example={"ne": True},
+                **kwargs,
             )
             messages += format(examples)
 
@@ -411,7 +409,7 @@ class LLM:
                 start=time() - hist_duration,
                 end=time(),
                 n=n_hist,
-                **{"metadata.base_example": {"ne": True}},
+                base_example={"ne": True},
             )  # TODO: If len(hist) == n_hist, remove n oldest responses - something something modulo
 
             # Assert that the history is sorted by time_added

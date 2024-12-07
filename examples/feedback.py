@@ -39,28 +39,32 @@ initial_response = llm.ask(
     pattern="weather",
     model="llama",
     n_example=2,
-    **{"metadata.feedback": True},
+    feedback=True,
 )["response"]
 
 print(f"Initial response:\n{dumps(initial_response, indent=4)}\n")
 
 db.add(
-    input="What's the weather like at home?",
+    input={
+        "query": "What's the weather like at home?",
+        "now": "2021-03-02 14:46",
+    },
     collection_name="weather",
     latitude=48.86,
     longitude=2.35,
-    now="2021-03-02 14:46",
     time="2021-03-02 14:46",
     feedback=True,
 )
 
 # See the repetition caveat in the README
 # db.add(
-#     input="Is it going to rain tonight at home?",
+#     input={
+#         "query": "Is it going to rain tonight at home?",
+#         "now": "2021-03-02 14:46",
+#     },
 #     collection_name="weather",
 #     latitude=48.86,
 #     longitude=2.35,
-#     now="2021-03-02 14:46",
 #     time="2021-03-02 21:00",
 #     feedback=True,
 # )
@@ -73,7 +77,7 @@ feedback_response = llm.ask(
     pattern="weather",
     model="llama",
     n_example=2,
-    **{"metadata.feedback": True},
+    feedback=True,
 )["response"]
 
 print(f"Feedback response:\n{dumps(feedback_response, indent=4)}\n")
