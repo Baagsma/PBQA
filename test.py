@@ -49,13 +49,14 @@ llm.connect_model(
     stop=["<|eot_id|>", "<|start_header_id|>", "<|im_end|>"],
 )
 
+llm.link("weather", "llama")
+
 weather_query = llm.ask(
     input={
         "query": "What will the weather be like tomorrow at 10:00?",
         "now": strftime("%Y-%m-%d %H:%M"),
     },
     pattern="weather",
-    model="llama",
 )
 
 print(json.dumps(weather_query, indent=4))

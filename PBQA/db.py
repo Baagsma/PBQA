@@ -21,6 +21,7 @@ class DB:
 
     DEFAULT_ENCODER = "all-MiniLM-L6-v2"
     DEFAULT_RESULT_COUNT = 5
+    DEFAULT_MAX_RESULT_COUNT = 100
     DEFAULT_METADATA_COLLECTION_NAME = "metadata"
 
     def __init__(
@@ -533,23 +534,12 @@ class DB:
         - List[dict]: A list of dictionaries, each representing a matching document. Each dictionary contains the document's input, id, distance from the query input, and metadata.
         """
 
-        if collection_name not in self.get_patterns():
-            if collection_name not in self.get_collections():
-                raise ValueError(
-                    f'Neither pattern nor collection named "{collection_name}" found. Make sure to load the pattern first or create the collection manually.'
-                )
-            else:
-                log.info(
-                    f'No collection associated with pattern "{collection_name}". Using collection "{collection_name}" for query instead.'
-                )
-                collection_name = collection_name
-        else:
-            collection_name = self.get_collection(collection_name)
-
         if n == -1:
-            n = 50
+            n = self.DEFAULT_MAX_RESULT_COUNT
         elif n < 1:
             return []
+
+        collection_name = self._get_collection_name(collection_name)
 
         query_filter = self.filter_to_qdrant_filter(kwargs)
 
@@ -561,27 +551,8 @@ class DB:
             score_threshold=min_d,
         )
 
-        if "schema" in self.get_metadata(collection_name=collection_name):
-            return [
-                {
-                    "input": doc.payload["input"],
-                    "response": doc.payload["response"],
-                    "metadata": {
-                        "distance": doc.score,
-                        **doc.payload["metadata"],
-                    },
-                }
-                for doc in docs
-            ]
-        else:
-            return [
-                {
-                    "input": doc.payload["input"],
-                    "distance": doc.score,
-                    **doc.payload,
-                }
-                for doc in docs
-            ]
+        has_schema = "schema" in self.get_metadata(collection_name=collection_name)
+        return self._format_docs(docs, has_schema)
 
     def where(
         self,
@@ -628,33 +599,17 @@ class DB:
         - List[dict]: A list of dictionaries, each representing a matching document. Each dictionary contains the document's input, id, and metadata.
         """
 
-        if collection_name not in self.get_patterns():
-            if collection_name not in self.get_collections():
-                raise ValueError(
-                    f'Neither pattern nor collection named "{collection_name}" found. Make sure to load the pattern first or create the collection manually.'
-                )
-            else:
-                log.info(
-                    f'No collection associated with pattern "{collection_name}". Using collection "{collection_name}" for query instead.'
-                )
-                collection_name = collection_name
-        else:
-            collection_name = self.get_collection(collection_name)
-
         if n == -1:
-            n = 50
+            n = self.DEFAULT_MAX_RESULT_COUNT
         elif n < 1:
             return []
 
+        collection_name = self._get_collection_name(collection_name)
         metadata = self.get_metadata(collection_name=collection_name)
+        has_schema = "schema" in metadata
 
-        if order_by:
-            order_obj = models.OrderBy(key=order_by, direction=order_direction)
-        else:
-            time_added_key = (
-                "metadata.time_added" if "schema" in metadata else "time_added"
-            )
-            order_by = time_added_key
+        time_added_key = "metadata.time_added" if has_schema else "time_added"
+        order_by = order_by or time_added_key
         order_obj = models.OrderBy(key=order_by, direction=order_direction)
 
         if "time_added" in metadata:
@@ -681,24 +636,49 @@ class DB:
             scroll_filter=scroll_filter,
             limit=n,
             order_by=order_obj,
-        )
+        )[0]
 
-        if "schema" in metadata:
+        return self._format_docs(docs, has_schema)
+
+    def _get_collection_name(self, collection_name: str) -> str:
+        if collection_name not in self.get_patterns():
+            if collection_name not in self.get_collections():
+                raise ValueError(
+                    f'Neither pattern nor collection named "{collection_name}" found. Make sure to load the pattern first or create the collection manually.'
+                )
+            else:
+                log.info(
+                    f'No collection associated with pattern "{collection_name}". Using collection "{collection_name}" instead.'
+                )
+                collection_name = collection_name
+        else:
+            collection_name = self.get_collection(collection_name)
+        return collection_name
+
+    def _format_docs(self, docs: List[dict], has_schema: bool) -> List[dict]:
+        if not docs:
+            return []
+
+        if has_schema:
             return [
                 {
                     "input": doc.payload["input"],
                     "response": doc.payload["response"],
-                    "metadata": doc.payload["metadata"],
+                    "metadata": {
+                        **({"distance": doc.score} if hasattr(doc, "score") else {}),
+                        **doc.payload["metadata"],
+                    },
                 }
-                for doc in docs[0]
+                for doc in docs
             ]
         else:
             return [
                 {
                     "input": doc.payload["input"],
+                    **({"distance": doc.score} if hasattr(doc, "score") else {}),
                     **doc.payload,
                 }
-                for doc in docs[0]
+                for doc in docs
             ]
 
     def get_schema_keys(self, collection_name: str) -> List[str]:

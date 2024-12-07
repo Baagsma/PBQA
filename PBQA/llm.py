@@ -1,7 +1,7 @@
 import json
 import logging
 from time import time
-from typing import List, Union
+from typing import List
 from pydantic import BaseModel
 
 import requests
