@@ -510,7 +510,7 @@ class LLM:
 
     def ask(
         self,
-        input: str,
+        input: str | dict,
         pattern: str,
         model: str = None,
         system_prompt: str = None,
@@ -530,7 +530,7 @@ class LLM:
         Ask the LLM a question or generate a response.
 
         Parameters:
-        - input (str): The input to the LLM.
+        - input (str | dict): The input to the LLM.
         - pattern (str): The pattern to use for generating the response.
         - model (str): The model to use for generating the response.
         - system_prompt (str): The system prompt to provide to the LLM.
@@ -549,6 +549,20 @@ class LLM:
         Returns:
         - dict: The response from the LLM.
         """
+
+        metadata = self.db.get_metadata(pattern)
+
+        if (
+            not input
+            or not isinstance(input, str)
+            and not isinstance(input, dict)
+            or (
+                isinstance(input, dict) and metadata.get("input_key", None) not in input
+            )
+        ):
+            raise ValueError(
+                f'Input must be a string or a dictionary with a key named "{metadata.get('input_key', 'input')}", got "{input}"'
+            )
 
         output = self._get_response(
             input=input,
