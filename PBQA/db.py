@@ -330,23 +330,32 @@ class DB:
 
         time_added = time_added or time()
 
-        schema_keys = self.get_schema_keys(collection_name)
+        if "schema" in metadata:
+            schema_keys = self.get_schema_keys(collection_name)
 
-        doc = {
-            "input": input,
-            "response": {k: v for k, v in kwargs.items() if k in schema_keys},
-            "metadata": {
-                **{k: v for k, v in kwargs.items() if k not in schema_keys},
-                "id": doc_id,
-                "embedding_text": embedding_text,
+            doc = {
+                "input": input,
+                "response": {k: v for k, v in kwargs.items() if k in schema_keys},
+                "metadata": {
+                    **{k: v for k, v in kwargs.items() if k not in schema_keys},
+                    "id": doc_id,
+                    "embedding_text": embedding_text,
+                    "time_added": time_added,
+                },
+            }
+
+            # Validate response against schema
+            if set(doc["response"].keys()) != set(schema_keys):
+                raise ValueError(
+                    f"Provided response {doc['response'].keys()} does not match schema keys {schema_keys}"
+                )
+        else:
+            # For non-pattern collections, just add the input and metadata
+            doc = {
+                "input": input,
                 "time_added": time_added,
-            },
-        }
-
-        if set(doc["response"].keys()) != set(schema_keys):
-            raise ValueError(
-                f"Provided response {doc['response'].keys()} does not match schema keys {schema_keys}"
-            )
+                **kwargs,
+            }
 
         self.client.upsert(
             collection_name=collection_name,
@@ -555,17 +564,27 @@ class DB:
             score_threshold=min_d,
         )
 
-        return [
-            {
-                "input": doc.payload["input"],
-                "response": doc.payload["response"],
-                "metadata": {
+        if "schema" in self.get_metadata(collection_name=collection_name):
+            return [
+                {
+                    "input": doc.payload["input"],
+                    "response": doc.payload["response"],
+                    "metadata": {
+                        "distance": doc.score,
+                        **doc.payload["metadata"],
+                    },
+                }
+                for doc in docs
+            ]
+        else:
+            return [
+                {
+                    "input": doc.payload["input"],
                     "distance": doc.score,
-                    **doc.payload["metadata"],
-                },
-            }
-            for doc in docs
-        ]
+                    **doc.payload,
+                }
+                for doc in docs
+            ]
 
     def where(
         self,
@@ -573,7 +592,7 @@ class DB:
         n: int = DEFAULT_RESULT_COUNT,
         start: float = None,
         end: float = None,
-        order_by: str = "metadata.time_added",
+        order_by: str = None,
         order_direction: str = "desc",
         **kwargs,
     ) -> List[dict]:
@@ -630,24 +649,32 @@ class DB:
         elif n < 1:
             return []
 
-        order_obj = models.OrderBy(key=order_by, direction=order_direction)
         metadata = self.get_metadata(collection_name=collection_name)
+
+        if order_by:
+            order_obj = models.OrderBy(key=order_by, direction=order_direction)
+        else:
+            time_added_key = (
+                "metadata.time_added" if "schema" in metadata else "time_added"
+            )
+            order_by = time_added_key
+        order_obj = models.OrderBy(key=order_by, direction=order_direction)
 
         if "time_added" in metadata:
             if start and end:
                 if "_and" in kwargs:
-                    kwargs["_and"].append({"metadata.time_added": {"gte": start}})
-                    kwargs["_and"].append({"metadata.time_added": {"lte": end}})
+                    kwargs["_and"].append({time_added_key: {"gte": start}})
+                    kwargs["_and"].append({time_added_key: {"lte": end}})
                 else:
                     kwargs["_and"] = [
-                        {"metadata.time_added": {"gte": start}},
-                        {"metadata.time_added": {"lte": end}},
+                        {time_added_key: {"gte": start}},
+                        {time_added_key: {"lte": end}},
                     ]
             elif start:
-                kwargs["metadata.time_added"] = {"gte": start}
+                kwargs[time_added_key] = {"gte": start}
             elif end:
-                kwargs["metadata.time_added"] = {"lte": end}
-        elif order_by == "time_added":
+                kwargs[time_added_key] = {"lte": end}
+        elif order_by in ["time_added", "metadata.time_added"]:
             order_obj = None
 
         scroll_filter = self.filter_to_qdrant_filter(kwargs)
@@ -659,14 +686,23 @@ class DB:
             order_by=order_obj,
         )
 
-        return [
-            {
-                "input": doc.payload["input"],
-                "response": doc.payload["response"],
-                "metadata": doc.payload["metadata"],
-            }
-            for doc in docs[0]
-        ]
+        if "schema" in metadata:
+            return [
+                {
+                    "input": doc.payload["input"],
+                    "response": doc.payload["response"],
+                    "metadata": doc.payload["metadata"],
+                }
+                for doc in docs[0]
+            ]
+        else:
+            return [
+                {
+                    "input": doc.payload["input"],
+                    **doc.payload,
+                }
+                for doc in docs[0]
+            ]
 
     def get_schema_keys(self, collection_name: str) -> List[str]:
         """
