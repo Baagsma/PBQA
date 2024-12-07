@@ -105,7 +105,7 @@ class DB:
             examples = self.load_from_file(examples)
 
         # Validate examples format
-        if not (
+        if examples and not (
             isinstance(examples, list)
             and all(
                 isinstance(item, dict) and "user" in item and "assistant" in item
@@ -168,27 +168,30 @@ class DB:
             },
         )
 
-        # Load examples
-        log.info(f'Loading examples into collection "{collection_name}"')
-        prev = time()
+        if examples:
+            log.info(f'Loading examples into collection "{collection_name}"')
+            prev = time()
 
-        for example in examples:
-            # Validate example against model schema
-            try:
-                schema.model_validate(example["assistant"])
-            except Exception as e:
-                raise ValueError(
-                    f"Example doesn't match model schema:\n{json.dumps(example['assistant'], indent=4)}\n\nSchema:\n{json.dumps(schema.model_json_schema(), indent=4)}"
-                ) from e
+            for example in examples:
+                # Validate example against model schema
+                try:
+                    schema.model_validate(example["assistant"])
+                except Exception as e:
+                    raise ValueError(
+                        f"Example doesn't match model schema:\n{json.dumps(example['assistant'], indent=4)}\n\nSchema:\n{json.dumps(schema.model_json_schema(), indent=4)}"
+                    ) from e
 
-            self.add(
-                input=example["user"],
-                collection_name=collection_name,
-                base_example=True,
-                **example["assistant"],
+                self.add(
+                    input=example["user"],
+                    collection_name=collection_name,
+                    base_example=True,
+                    **example["assistant"],
+                )
+
+            log.info(
+                f'Populated collection "{collection_name}" in {time() - prev:.3f} s'
             )
 
-        log.info(f'Populated collection "{collection_name}" in {time() - prev:.3f} s')
         self.index(collection_name, "metadata.time_added", "float")
 
     @staticmethod
@@ -630,11 +633,16 @@ class DB:
         order_obj = models.OrderBy(key=order_by, direction=order_direction)
         metadata = self.get_metadata(collection_name=collection_name)
 
-        log.info(f"Metadata: {metadata}")
-
         if "time_added" in metadata:
             if start and end:
-                kwargs["metadata.time_added"] = {"_and": [{"gte": start}, {"lte": end}]}
+                if "_and" in kwargs:
+                    kwargs["_and"].append({"metadata.time_added": {"gte": start}})
+                    kwargs["_and"].append({"metadata.time_added": {"lte": end}})
+                else:
+                    kwargs["_and"] = [
+                        {"metadata.time_added": {"gte": start}},
+                        {"metadata.time_added": {"lte": end}},
+                    ]
             elif start:
                 kwargs["metadata.time_added"] = {"gte": start}
             elif end:
@@ -745,17 +753,28 @@ class DB:
                     should=[process_filter(*list(item.items())[0]) for item in operand]
                 )
             elif operator == "eq":
-                return models.FieldCondition(
-                    key=key, match=models.MatchValue(value=operand)
-                )
+                try:
+                    return models.FieldCondition(
+                        key=key, match=models.MatchValue(value=operand)
+                    )
+                except Exception as e:
+                    raise ValueError(
+                        f"Invalid operand {operand} for operator eq. Filter:\n{json.dumps(filter, indent=4)}\n\nError:\n{str(e)}"
+                    )
             elif operator == "ne":
-                return models.Filter(
-                    must_not=[
-                        models.FieldCondition(
-                            key=key, match=models.MatchValue(value=operand)
-                        )
-                    ]
-                )
+                try:
+                    return models.Filter(
+                        must_not=[
+                            models.FieldCondition(
+                                key=key, match=models.MatchValue(value=operand)
+                            )
+                        ]
+                    )
+                except Exception as e:
+                    raise ValueError(
+                        f"Invalid operand {operand} for operator ne. Filter:\n{json.dumps(filter, indent=4)}\n\nError:\n{str(e)}"
+                    )
+
             elif operator == "gt":
                 range.gt = operand
                 return models.FieldCondition(key=key, range=range)
@@ -785,7 +804,9 @@ class DB:
                     key=key, match=models.MatchExcept(**{"except": operand})
                 )
             else:
-                raise ValueError(f"Invalid operator {operator}")
+                raise ValueError(
+                    f"Invalid operator {operator} in filter:\n{json.dumps(filter, indent=4)}"
+                )
 
         must = []
         should = []

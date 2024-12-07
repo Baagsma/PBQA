@@ -333,8 +333,12 @@ class LLM:
         ) -> dict[str, str]:
             if type(doc) == str:
                 return {"role": role, "content": doc}
+            if not type(doc) == dict:
+                raise ValueError(
+                    f"Invalid document type {type(doc)}. Expected dict or str, got {doc}"
+                )
             if len(doc) == 1:
-                return {"role": role, "content": doc[doc.keys()[0]]}
+                return {"role": role, "content": doc[list(doc.keys())[0]]}
             else:
                 return {
                     "role": role,
@@ -572,11 +576,8 @@ def prom_to_json(prom: str) -> dict:
             continue
 
         parts = line.split(" ")
-        log.warn(f"Part: {parts}")
-
         metric_name = parts[0].removeprefix("llamacpp:")
         metric_value = parts[1]
-
         metrics[metric_name] = metric_value
 
     return metrics
