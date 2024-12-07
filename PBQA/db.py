@@ -316,45 +316,42 @@ class DB:
             )
 
         metadata = self.get_metadata(collection_name=collection_name)
-
+        input_key = metadata.get("input_key", "input")
         doc_id = str(uuid.uuid4())
 
-        input_key = metadata.get("input_key", "input")
-        embedding_text = input
-        if isinstance(input, dict):
-            if input_key not in input:
-                raise ValueError(
-                    f'Input dict must contain "{input_key}" key, got {input.keys()}'
-                )
-            embedding_text = input[input_key]
+        # Extract embedding text
+        embedding_text = input[input_key] if isinstance(input, dict) else input
+        if isinstance(input, dict) and input_key not in input:
+            raise ValueError(f'Input dict must contain "{input_key}" key')
 
-        time_added = time_added or time()
+        # Build base document
+        doc = {
+            "input": input,
+            "time_added": time_added or time(),
+            **kwargs,
+        }
 
+        # Handle schema if present
         if "schema" in metadata:
             schema_keys = self.get_schema_keys(collection_name)
-
-            doc = {
-                "input": input,
-                "response": {k: v for k, v in kwargs.items() if k in schema_keys},
-                "metadata": {
-                    **{k: v for k, v in kwargs.items() if k not in schema_keys},
-                    "id": doc_id,
-                    "embedding_text": embedding_text,
-                    "time_added": time_added,
-                },
-            }
+            response_data = {k: v for k, v in kwargs.items() if k in schema_keys}
+            doc_metadata = {k: v for k, v in kwargs.items() if k not in schema_keys}
 
             # Validate response against schema
-            if set(doc["response"].keys()) != set(schema_keys):
+            if set(response_data.keys()) != set(schema_keys):
                 raise ValueError(
-                    f"Provided response {doc['response'].keys()} does not match schema keys {schema_keys}"
+                    f"Response {response_data.keys()} doesn't match schema {schema_keys}"
                 )
-        else:
-            # For non-pattern collections, just add the input and metadata
+
             doc = {
                 "input": input,
-                "time_added": time_added,
-                **kwargs,
+                "response": response_data,
+                "metadata": {
+                    **doc_metadata,
+                    "id": doc_id,
+                    "embedding_text": embedding_text,
+                    "time_added": doc["time_added"],
+                },
             }
 
         self.client.upsert(
