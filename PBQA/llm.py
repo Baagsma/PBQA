@@ -207,6 +207,18 @@ class LLM:
 
         metadata = self.db.get_metadata(pattern)
 
+        # If the schema consists of a single str component, pass None instead of the schema
+        schema = schema or metadata["schema"]
+        if (
+            len(schema["properties"]) == 1
+            and (prop_name := list(schema["properties"].keys())[0])
+            and schema["properties"][prop_name]["type"] == "string"
+        ):
+            log.info(
+                f"Schema consists of a single string component ({prop_name}). Passing None instead of the schema."
+            )
+            schema = None
+
         parameters = {**self.models[model], **kwargs}
 
         data = {
@@ -214,7 +226,7 @@ class LLM:
             "id_slot": cache_slot,
             "cache_prompt": use_cache,
             "messages": messages,
-            "json_schema": schema or metadata["schema"],
+            **({"json_schema": schema} if schema else {}),
             "stop": parameters.get("stop", []) + stop,
             **parameters,
         }
@@ -234,7 +246,9 @@ class LLM:
             raw_response = requests.post(
                 url, headers=headers, data=json.dumps(data)
             ).json()
-            llm_response = json.loads(raw_response["choices"][0]["message"]["content"])
+            log.warn(f"Raw response:\n{json.dumps(raw_response, indent=4)}")
+            content = raw_response["choices"][0]["message"]["content"]
+            llm_response = json.loads(content) if schema else content
             log.info(f"Response:\n{json.dumps(llm_response, indent=4)}")
         except requests.exceptions.RequestException as e:
             raise ValueError(
@@ -250,7 +264,7 @@ class LLM:
             }
             metrics = prom_to_json(requests.get(url, headers=headers).text)
 
-            log.info(f"Metrics:\n{metrics}")
+            log.info(f"Metrics:\n{json.dumps(metrics, indent=4)}")
         except requests.exceptions.RequestException as e:
             log.warn(
                 f"Failed to get metrics from LLM server at {parameters['host']}:{parameters['port']}. Ensure the server is running with the --metrics flag."
@@ -258,7 +272,7 @@ class LLM:
 
         return {
             "input": input,
-            "response": llm_response,
+            "response": llm_response if schema else {prop_name: llm_response},
             "metadata": {
                 "metrics": metrics,
             },
