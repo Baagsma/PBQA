@@ -67,25 +67,26 @@ class Agent:
             },
             pattern="weather",
             model="llama",
-        )["response"]
+        )
+        weather_obj = weather_query["response"]
 
         assert (
-            type(weather_query["latitude"]) == float
-        ), f"Expected float, got {weather_query['latitude']} ({type(weather_query['latitude'])})"
+            type(weather_obj["latitude"]) == float
+        ), f"Expected float, got {weather_obj['latitude']} ({type(weather_obj['latitude'])})"
 
-        forecast = get_forecast(**weather_query)
+        forecast = get_forecast(**weather_obj)
         forecast = self._format_forecast(forecast)
 
         print(f"Forecast:\n{json.dumps(forecast, indent=4)}\n")
 
-        return self.llm.ask(
+        return weather_query, self.llm.ask(
             input={
                 "query": input,
                 "json": json.dumps(forecast),
             },
             pattern="thinkandanswer",
             model="llama",
-        )["response"]
+        )
 
     def _format_forecast(self, forecast: dict):
         return {
@@ -120,9 +121,13 @@ llm.connect_model(
 
 agent = Agent(db=db, llm=llm)
 
-response = agent.ask_weather("Could I see the stars tonight?")
+weather_query, response = agent.ask_weather("Could I see the stars tonight?")
+
+log.info(f"Weather query:\n{json.dumps(weather_query, indent=4)}")
 log.info(f"Response:\n{json.dumps(response, indent=4)}")
 
+
+response = response["response"]
 assert response["thought"] != "", f"Expected a thought, got {response['thought']}"
 assert response["answer"] != "", f"Expected an answer, got {response['answer']}"
 
