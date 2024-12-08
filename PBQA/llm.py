@@ -236,6 +236,7 @@ class LLM:
         )
 
         try:
+            then = time()
             url = (
                 f"http://{parameters['host']}:{parameters['port']}/v1/chat/completions"
             )
@@ -249,31 +250,18 @@ class LLM:
             content = raw_response["choices"][0]["message"]["content"]
             llm_response = json.loads(content) if schema else content
             log.info(f"Response:\n{json.dumps(llm_response, indent=4)}")
+            response_time = time() - then
         except requests.exceptions.RequestException as e:
             raise ValueError(
                 f"Request to LLM failed: {str(e)}\n\nEnsure the llama.cpp server is running."
-            )
-
-        metrics = {}
-        try:
-            url = f"http://{parameters['host']}:{parameters['port']}/metrics"
-            headers = {
-                "Content-Type": "application/json",
-                "Authorization": "Bearer no-key",
-            }
-            metrics = prom_to_json(requests.get(url, headers=headers).text)
-
-            log.info(f"Metrics:\n{json.dumps(metrics, indent=4)}")
-        except requests.exceptions.RequestException as e:
-            log.warn(
-                f"Failed to get metrics from LLM server at {parameters['host']}:{parameters['port']}. Ensure the server is running with the --metrics flag."
             )
 
         return {
             "input": input,
             "response": llm_response if schema else {prop_name: llm_response},
             "metadata": {
-                "metrics": metrics,
+                "total_time": response_time,
+                **raw_response["usage"],
             },
         }
 
@@ -580,29 +568,3 @@ class LLM:
         )
 
         return output
-
-
-def prom_to_json(prom: str) -> dict:
-    """
-    Convert a Prometheus metrics string to a JSON object.
-
-    Parameters:
-    - prom (str): The Prometheus metrics string.
-
-    Returns:
-    - dict: The JSON object.
-    """
-    lines = prom.split("\n")
-    metrics = {}
-    for line in lines:
-        if line.startswith("#"):
-            continue
-        if len(line) == 0:
-            continue
-
-        parts = line.split(" ")
-        metric_name = parts[0].removeprefix("llamacpp:")
-        metric_value = parts[1]
-        metrics[metric_name] = metric_value
-
-    return metrics
