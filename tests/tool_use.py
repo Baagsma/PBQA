@@ -106,12 +106,12 @@ db.load_pattern(
 )
 db.load_pattern(
     schema=ThinkAndAnswer,
-    examples="examples/answer_json.yaml",
-    system_prompt="Use the provided JSON object to answer the query. Leave out any irrelevant information. If the data looks insufficient at face value, try to think step by step to come to a helpful answer. Reply with an answer to the query without mentioning the JSON object or any of its properties. Unless asked, your final answer should not contain any specific numbers or values from the JSON object.",
+    examples="examples/answer_info.yaml",
+    system_prompt="Use the provided object to answer the query. Leave out any irrelevant information. If the data looks insufficient at face value, try to think step by step to come to a helpful answer. Reply with an answer to the query without mentioning the JSON object or any of its properties. Unless asked, your final answer should not contain any specific numbers or values from the JSON object.",
     input_key="query",
 )
 
-llm = LLM(db=db, host="localhost")
+llm = LLM(db=db, host="192.168.0.91")
 llm.connect_model(
     model="llama",
     port=8080,

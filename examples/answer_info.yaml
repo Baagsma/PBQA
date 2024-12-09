@@ -1,6 +1,6 @@
 - user:
     query: "Can I book a table for two at The Italian Bistro for tonight at 7 PM?"
-    json:
+    info:
       restaurant: "The Italian Bistro"
       availability:
         "2024-06-19":
@@ -16,7 +16,7 @@
 
 - user:
     query: "When will my package arrive?"
-    json:
+    info:
       package_id: "ABC123"
       status: "Out for Delivery"
       estimated_delivery: "2024-06-19"
@@ -28,7 +28,7 @@
 
 - user:
     query: "Could I afford a vacation to Hawaii next month?"
-    json:
+    info:
       account: "Savings"
       balance: "$1,234.56"
   assistant:
@@ -37,7 +37,7 @@
 
 - user:
     query: "What's the best way to get to the airport from downtown?"
-    json:
+    info:
       transport:
         options: ["Taxi", "Public Transit", "Ride-Sharing"]
         prices:
@@ -50,7 +50,7 @@
 
 - user:
     query: "Can I wear shorts and a t-shirt to the event?"
-    json:
+    info:
       event: "Outdoor Concert"
       weather:
         temperature: "23°C"
@@ -61,7 +61,7 @@
 
 - user:
     query: "What's the best time to visit the museum?"
-    json:
+    info:
       museum: "Art Museum"
       hours:
         Monday: "Closed"
