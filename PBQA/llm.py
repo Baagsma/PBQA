@@ -247,6 +247,8 @@ class LLM:
             raw_response = requests.post(
                 url, headers=headers, data=json.dumps(data)
             ).json()
+            if "error" in raw_response:
+                raise ValueError(f"LLM error:\n{json.dumps(raw_response, indent=4)}")
             content = raw_response["choices"][0]["message"]["content"]
             llm_response = json.loads(content) if schema else content
             log.info(f"Response:\n{json.dumps(llm_response, indent=4)}")
@@ -303,6 +305,8 @@ class LLM:
         - list[dict[str, str]]: The formatted messages.
         """
 
+        metadata = self.db.get_metadata(pattern)
+
         def format(
             docs: list[dict],
             user: str = user_name,
@@ -338,7 +342,9 @@ class LLM:
                 raise ValueError(
                     f"Invalid document type {type(doc)}. Expected dict or str, got {doc}"
                 )
-            if len(doc) == 1:
+            if (
+                len(doc) == 1 and type(doc[list(doc.keys())[0]]) == str
+            ):  # If the only has a single component of type str, pass it as a string instead of a dict (in line with get_response)
                 return {"role": role, "content": doc[list(doc.keys())[0]]}
             else:
                 return {
@@ -347,8 +353,6 @@ class LLM:
                 }
 
         messages = []
-
-        metadata = self.db.get_metadata(pattern)
         system_prompt = system_prompt or metadata.get("system_prompt", None)
         if include_system_prompt and system_prompt:
             messages += [
