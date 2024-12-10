@@ -198,8 +198,8 @@ Running the agent with the input "Could I see the stars tonight?" demonstrates h
 
     ```json
     {
-    "thought": "The temperature is quite cool at 19.3C, but the precipitation probability is low at 3%. However, the cloud cover is quite high at 64%, which might make it difficult to see the stars. It's not ideal conditions, but it's not impossible either.",
-    "answer": "It might be a bit challenging to see the stars tonight due to the 64% cloud cover. However, the low precipitation probability and temperature are in your favor. If you're willing to brave the clouds, you might still be able to catch a glimpse of the stars."
+        "thought": "The temperature is quite cool at 19.3C, but the precipitation probability is low at 3%. However, the cloud cover is quite high at 64%, which might make it difficult to see the stars. It's not ideal conditions, but it's not impossible either.",
+        "answer": "It might be a bit challenging to see the stars tonight due to the 64% cloud cover. However, the low precipitation probability and temperature are in your favor. If you're willing to brave the clouds, you might still be able to catch a glimpse of the stars."
     }
     ```
 
