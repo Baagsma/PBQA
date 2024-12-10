@@ -45,6 +45,7 @@ db.load_pattern(
     schema=Weather,
     examples="weather.yaml",
     system_prompt="Your job is to translate the user's input into a weather query object."
+    input_key="query",
 )
 
 # Next, we connect to the LLM server
@@ -124,12 +125,15 @@ Beyond the Pydantic schema, the user can also provide a system prompt and exampl
     latitude: 51.51
     longitude: -0.13
     time: 2025-06-12 17:00
+...
 ```
 
-For more examples, look at the pattern files in the [examples](examples/README.md#patterns) directory. Information on the GBNF grammar format can be found [here](https://github.com/ggerganov/llama.cpp/tree/master/grammars#gbnf-guide).
+*Note.* While the assistant's response is validated against the schema when loaded, the user's input is free to be anything. This allows the user to provide any information they want (see [tool use](examples/tool_use.py)).
+
+Any samples passed to the LLM through the `examples` parameter will be used as "base examples" for the pattern, which are examples that are loaded as part of every query to the LLM. Since caching is enabled by default, if your llama.cpp server is initialized correctly, the increased prompt processing time for these examples only occurs once per pattern (see [cache](#cache)). In addition to these base examples, more examples can also be added later for the LLM to learn from. 
 
 ### Cache
-Unless overridden, queries using the same pattern will use the same system prompt and base examples, allowing a large part of the response to be cached and speeding up generation. This can be disabled by setting `use_cache=False` in the `ask()` method.
+Unless overridden, queries using the same pattern will use the same system prompt and base examples, allowing a large part of the response to be cached. This avoids the need reprocess those parts of the response, speeding up the query. This can be disabled by setting `use_cache=False` when invoking `llm.ask()`.
 
 PBQA allocates a slot/process for each pattern-model pair in the llama.cpp server. Set `-np` to the number of unique combinations of patterns and models you want to enable caching for. Slots are allocated in the order they are requested, and if the number of available slots is exceeded, the last slot is reused for any excess pattern-model pairs.
 
@@ -140,7 +144,12 @@ from PBQA import DB, LLM
 
 
 db = DB(path="db")
-db.load_pattern("examples/weather.yaml")
+db.load_pattern(
+    schema=Weather,
+    examples="weather.yaml",
+    system_prompt="Your job is to translate the user's input into a weather query object.",
+    input_key="query",
+)
 
 llm = LLM(db=db, host="127.0.0.1")
 llm.connect_model(
@@ -156,7 +165,6 @@ Once a pattern-model pair is linked, the "model" parameter in the `ask()` method
 
 ## Roadmap
 Future features in no particular order with no particular timeline:
-
  - [Reranking](https://github.com/ggerganov/llama.cpp/blob/master/examples/server/README.md#post-reranking-rerank-documents-according-to-a-given-query)
  - Parallel query execution
  - Combining multi-shot prompting with message history
@@ -165,7 +173,6 @@ Future features in no particular order with no particular timeline:
  - Support for more LLM backends
 
 ## Relevant Literature
-
  - [Language Models are Few-Shot Learners (Brown et al., 2020)](https://arxiv.org/abs/2005.14165)
  - [Many-Shot In-Context Learning (Aragwal, 2024)](https://arxiv.org/abs/2404.11018)
  - [Chain-of-Thought Prompting Elicits Reasoning in Large Language Models (Wei et al., 2022)](https://arxiv.org/abs/2201.11903)
@@ -183,5 +190,7 @@ This project is licensed under the terms of the MIT License. For more details, s
 [Qdrant](https://github.com/qdrant/qdrant-client) is a vector database that provides an API for managing and querying text embeddings. PBQA uses Qdrant to store and retrieve text embeddings.
 
 [llama.cpp](https://github.com/ggerganov/llama.cpp) is a C++ library that provides an easy-to-use interface for running LLMs on a wide variety of hardware. It includes support for Apple silicon, x86 architectures, and NVIDIA GPUs, as well as custom CUDA kernels for running LLMs on AMD GPUs via HIP. PBQA uses llama.cpp to interact with LLMs.
+
+[Pydantic](https://github.com/pydantic/pydantic) is a Python library that provides a powerful and flexible way to define data models.
 
 PBQA was originally developed by Bart Haagsma as part of different project. If you have any questions or suggestions, please feel free to contact me at dev.baagsma@gmail.com.
