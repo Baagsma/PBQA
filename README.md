@@ -61,13 +61,13 @@ llm.connect_model(
 # Finally, we query the LLM and receive a response based on the specified pattern
 # Optionally, external data can be provided to the LLM which it can use in its response
 weather_query = llm.ask(
-        input={
-            "query": "Could I see the stars tonight?",
-            "now": "2024-09-30 10:36",
-        },
-        pattern="weather",
-        model="llama",
-    )["response"]
+    input={
+        "query": "Could I see the stars tonight?",
+        "now": "2024-09-30 10:36",
+    },
+    pattern="weather",
+    model="llama",
+)["response"]
 ```
 
 Using the [weather.yaml](examples/weather.yaml) pattern file and [llama 3](https://huggingface.co/QuantFactory/Meta-Llama-3-8B-Instruct-GGUF) running on localhost:8080, the response should look something like this:
