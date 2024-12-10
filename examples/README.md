@@ -6,8 +6,10 @@ Patterns are written using Pydantic models and optional YAML examples to define 
 Below is an example of a pattern setup for a weather query:
 
 ```python
-from pydantic import BaseModel, Field
 from typing import Annotated
+from pydantic import BaseModel, Field
+from PBQA import DB, LLM
+
 
 class Weather(BaseModel):
     latitude: float
@@ -16,7 +18,7 @@ class Weather(BaseModel):
         str, Field(pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}$")
     ]
 
-db = DB(path="examples/db")
+db = DB(path="db")
 db.load_pattern(
     schema=Weather,
     examples="weather.yaml",
@@ -44,6 +46,9 @@ The examples can be provided in YAML format to demonstrate desired behavior:
 
 Besides the schema, having a well-crafted system prompt and relevant examples is helpful in guiding the LLM to generate appropriate responses. The system prompt provides the overall context and instructions, while examples help demonstrate the expected input-output patterns.
 
+## Regex Patterns
+Using `Field(pattern=r"...")` its possible to define a regex pattern for a specific field in the schema. This can be useful for validating the input and ensuring it matches the expected format. To use this, make sure to import `Annotated` from `typing` and `Field` from `pydantic`. Also note that the field must be a string and that the pattern starts with `^` and ends with `$`.
+
 ## Conversation
 Conversational agents are a common use case for LLMs. While PBQA allows for structured responses through Pydantic models, it can also be used for free-form conversation. Below is an example of a simple conversational pattern:
 
@@ -51,6 +56,7 @@ Conversational agents are a common use case for LLMs. While PBQA allows for stru
 class Conversation(BaseModel):
     reply: str
 
+db = DB(path="db")
 db.load_pattern(
     schema=Conversation,
     system_prompt="You are a virtual assistant. Your tone is friendly and helpful."
@@ -61,15 +67,7 @@ db.load_pattern(
 To use a pattern, first the vector database must be initialized and the necessary patterns loaded. After that, the LLM can be connected to the model(s) to be queried:
 
 ```python
-from PBQA import DB, LLM
-
-db = DB(path="examples/db")
-db.load_pattern(
-    schema=Conversation,
-    system_prompt="You are a virtual assistant. Your tone is friendly and helpful."
-)
-
-llm = LLM(db=db, host="127.0.0.1")
+llm = LLM(db=db, host="localhost")
 llm.connect_model(
     model="llama",
     port=8080,
@@ -293,7 +291,7 @@ Since most queries benefit from additional examples, setting up a system to proc
 ### Examples and History Caveat
 While using both `n_examples` and `n_hist` at once in a query should lead to a valid call, using both parameters is not recommended. The way the entries are currently formatted makes no distinction between examples and history, the history merely being appended after the examples. This may lead to unexpected behavior and poorer response quality. This is a known issue that will be addressed in a future update.
 
-One way of solving this issue is to manually retrieve the history from the database and pass as an external component to the LLM. This way, the history can be formatted and filtered as needed before being passed to the LLM.
+One way of solving this issue is to manually retrieve the history from the database and pass as it to the LLM as part of the input. This way, the history can be formatted and filtered as needed before being passed to the LLM.
 
 ## Filtering
 Any additional keyword arguments passed to the `llm.ask()` method are used to filter the examples provided to the LLM. 
@@ -321,10 +319,12 @@ If no operator is specified, the default is `eq`, allowing for simple equality c
 
 ```py
 llm.ask(
-    input="Is it going to rain tonight at home?",
+    input={
+        "query": "Is it going to rain tonight at home?",
+        "now": strftime("%Y-%m-%d %H:%M")
+    }
     pattern="weather",
     model="llama",
-    external={"now": strftime("%Y-%m-%d %H:%M")},
     n_example=1,
     _or=[
         {"feedback": True},
@@ -351,10 +351,12 @@ Then, when querying the LLM, the examples can be filtered for feedback examples 
 
 ```py
 llm.ask(
-    input="Is it going to rain tonight at home?",
+    input={
+        "query": "Is it going to rain tonight at home?",
+        "now": strftime("%Y-%m-%d %H:%M")
+    }
     pattern="weather",
     model="llama",
-    external={"now": strftime("%Y-%m-%d %H:%M")},
     n_example=1,
     feedback=True,  # or {"eq": True}
 )
@@ -378,7 +380,7 @@ The link method can be used to manually assign a cache slot to a specific patter
 ```python
 from PBQA import DB, LLM
 
-db = DB(path="examples/db")
+db = DB(path="db")
 db.load_pattern(
     schema=Weather,
     examples="weather.yaml",
@@ -386,7 +388,7 @@ db.load_pattern(
     input_key="query"
 )
 
-llm = LLM(db=db, host="127.0.0.1")
+llm = LLM(db=db, host="localhost")
 llm.connect_model(
     model="llama",
     port=8080,

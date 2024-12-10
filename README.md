@@ -151,7 +151,7 @@ db.load_pattern(
     input_key="query",
 )
 
-llm = LLM(db=db, host="127.0.0.1")
+llm = LLM(db=db, host="localhost")
 llm.connect_model(
     model="llama",
     port=8080,
