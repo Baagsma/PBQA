@@ -1,62 +1,49 @@
-system_prompt: Your job is to translate the user's input into a weather query. The user may ask about the weather in general, the weather at a specific time, or the weather at a specific location. You should extract the time and location from the user's json and provide a (or part of a) weather query. Reply with the json for the weather query and nothing else.
-now:
-  external: true
-latitude:
-  grammar: |
-    root         ::= coordinate
-    coordinate   ::= "-"? integer "." integer
-    integer      ::= digit{1,2}
-    digit        ::= [0-9]
-longitude:
-  grammar: |
-    root         ::= coordinate
-    coordinate   ::= "-"? integer "." integer
-    integer      ::= digit{1,3}
-    digit        ::= [0-9]
-time:
-  grammar: |
-    root         ::= "\"" date " " time "\""
-    date         ::= year "-" month "-" day
-    year         ::= digit{4}
-    month        ::= digit{2}
-    day          ::= digit{2}
-    time         ::= hour ":" minute
-    hour         ::= digit{2}
-    minute       ::= digit{2}
-    digit        ::= [0-9]
-examples:
-- input: What will the weather be like tonight
-  now: 2019-09-30 10:36
-  latitude: 51.51
-  longitude: 0.13
-  time: 2019-09-30 20:00
-- input: any idea if it'll be sunny tomorrow in Paris?
-  now: 2016-11-02 12:15
-  latitude: 48.86
-  longitude: 2.35
-  time: 2016-11-03 13:00
-- input: will it be dry out by the time I get off work?
-  now: 2025-06-12 09:23
-  latitude: 51.51
-  longitude: 0.13
-  time: 2025-06-12 17:00
-- input: is it going to rain today in Amsterdam?
-  now: 2020-03-15 09:54
-  latitude: 52.36
-  longitude: 4.90
-  time: 2020-03-15 13:00
-- input: should I bring an umbrella to work tomorrow?
-  now: 2023-07-01 07:45
-  latitude: 51.51
-  longitude: 0.13
-  time: 2023-07-02 09:00
-- input: What's the weather going to be like tomorrow?
-  now: 2024-04-24 18:47
-  latitude: 51.51
-  longitude: 0.13
-  time: 2024-04-25 13:00
-- input: What was the weather last week in NYC?
-  now: 2008-02-21 22:24
-  latitude: 40.78
-  longitude: -73.97
-  time: 2008-02-14 13:00
+- user:
+    query: What will the weather be like tonight
+    now: 2019-09-30 10:36
+  assistant:
+    latitude: 51.51
+    longitude: -0.13
+    time: 2019-09-30 20:00
+- user:
+    query: any idea if it'll be sunny tomorrow in Paris?
+    now: 2016-11-02 12:15
+  assistant:
+    latitude: 48.86
+    longitude: 2.35
+    time: 2016-11-03 13:00
+- user:
+    query: will it be dry out by the time I get off work?
+    now: 2025-06-12 09:23
+  assistant:
+    latitude: 51.51
+    longitude: -0.13
+    time: 2025-06-12 17:00
+- user:
+    query: is it going to rain today in Amsterdam?
+    now: 2020-03-15 09:54
+  assistant:
+    latitude: 52.36
+    longitude: 4.90
+    time: 2020-03-15 13:00
+- user:
+    query: should I bring an umbrella to work tomorrow?
+    now: 2023-07-01 07:45
+  assistant:
+    latitude: 51.51
+    longitude: -0.13
+    time: 2023-07-02 09:00
+- user:
+    query: What's the weather going to be like tomorrow?
+    now: 2024-04-24 18:47
+  assistant:
+    latitude: 51.51
+    longitude: -0.13
+    time: 2024-04-25 13:00
+- user:
+    query: What was the weather last week in NYC?
+    now: 2008-02-21 22:24
+  assistant:
+    latitude: 40.78
+    longitude: -73.97
+    time: 2008-02-14 13:00

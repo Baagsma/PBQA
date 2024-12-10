@@ -35,27 +35,27 @@ assert (
     db.n("non_pattern_collection") == 2
 ), f"Expected 2 entries, got {db.n('non_pattern_collection')}"
 
-response = db.query(
+exchange = db.query(
     "non_pattern_collection",
     "What's France's capital?",
     n=1,
 )[0]
 assert (
-    response["input"] == "What is the capital of France?"
-), f"Expected 'What is the capital of France?', got {response['input']}"
-assert response["text"] == "Paris", f"Expected 'Paris', got {response['text']}"
-log.info(f"Query successful: {response['text']}")
+    exchange["input"] == "What is the capital of France?"
+), f"Expected 'What is the capital of France?', got {exchange['input']}"
+assert exchange["text"] == "Paris", f"Expected 'Paris', got {exchange['text']}"
+log.info(f"Query successful: {exchange['text']}")
 
 db.index("non_pattern_collection", "country", "keyword")
-response = db.where(
+exchange = db.where(
     "non_pattern_collection",
     n=1,
     country="France",
 )[0]
 assert (
-    response["input"] == "What is the capital of France?"
-), f"Expected 'What is the capital of France?', got {response['input']}"
-assert response["text"] == "Paris", f"Expected 'Paris', got {response['text']}"
+    exchange["input"] == "What is the capital of France?"
+), f"Expected 'What is the capital of France?', got {exchange['input']}"
+assert exchange["text"] == "Paris", f"Expected 'Paris', got {exchange['text']}"
 
 log.info(f"All tests passed")
 db.delete_collection("non_pattern_collection")

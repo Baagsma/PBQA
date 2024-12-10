@@ -2,14 +2,14 @@ import json
 import logging
 import os
 import uuid
-from datetime import datetime
 from hashlib import sha256
 from time import time
-from typing import List, Union
+from typing import List
 
 import requests
 import yaml
 from dateutil.parser import parse
+from pydantic import BaseModel
 from qdrant_client import QdrantClient, models
 from sentence_transformers import SentenceTransformer
 
@@ -21,6 +21,7 @@ class DB:
 
     DEFAULT_ENCODER = "all-MiniLM-L6-v2"
     DEFAULT_RESULT_COUNT = 5
+    DEFAULT_MAX_RESULT_COUNT = 100
     DEFAULT_METADATA_COLLECTION_NAME = "metadata"
 
     def __init__(
@@ -45,7 +46,7 @@ class DB:
         - encoder (str): The name of the SentenceTransformer model to use for encoding documents.
         - metadata_collection_name (str, optional): The name of the collection to store metadata in. Defaults to "metadata".
         - reset (bool, optional): Whether to reset the database. Defaults to False. If True, the collections specified in the metadata collection will be deleted.
-        - auto_update (bool, optional): Whether to automatically update the database when the patterns change. Defaults to False.
+        - auto_update (bool, optional): Whether to automatically update the database when the patterns change. Defaults to False. Warning: Any changes to the examples, model, or system prompt will completely overwrite the collection.
         """
 
         self.use_remote = False
@@ -88,136 +89,143 @@ class DB:
 
     def load_pattern(
         self,
-        path: str,
-        pattern_name: str = None,
+        schema: BaseModel,
+        examples: str | list[dict] = None,
+        system_prompt: str = None,
         collection_name: str = None,
+        input_key: str = "input",
+        **kwargs,
     ):
-        """
-        Load a pattern from a file.
-
-        This method loads a pattern from a file and adds it to the database. The file can be in either JSON or YAML format. The pattern name is inferred from the file name, but can be overridden by passing a `pattern_name` parameter.
-
-        The file must contain at least one key for every component of the response, each of which can have its own metadata or be left empty. The collection name is inferred from the pattern name, but can be overridden by passing a `collection_name` parameter.
-
-        Parameters:
-        - path (str): The path to the file to read.
-        - pattern_name (str, optional): The name of the pattern to load. Defaults to None.
-        - collection_name (str, optional): The name of the collection to load the pattern into. Defaults to None.
-        """
-
-        if file_extension(path) not in ["yaml", "json"]:
-            raise ValueError(
-                "Invalid file type. Only .yaml and .json files are supported."
-            )
-
-        data = self.load_from_file(path)
-        pattern_name = pattern_name or file_name(path)
+        pattern_name = schema.__name__.lower()
         collection_name = collection_name or pattern_name
 
-        if collection_name not in self.get_collections():
-            self._add_from_file(
-                path, collection_name=collection_name, pattern_name=pattern_name
+        log.info(f"Creating collection {collection_name} for pattern {pattern_name}")
+
+        # Early conversion of file to examples if needed
+        if isinstance(examples, str):
+            examples = self.load_from_file(examples)
+
+        # Validate examples format
+        if examples and not (
+            isinstance(examples, list)
+            and all(
+                isinstance(item, dict) and "user" in item and "assistant" in item
+                for item in examples
             )
-            self.index(collection_name, "time_added", "float")
-            return
-        else:
-            if pattern_name != (
-                stored_name := self.get_metadata(collection_name=collection_name)[
-                    "pattern_name"
-                ]
-            ):
+        ):
+            raise ValueError(
+                f"Invalid examples format. Expected list of dicts with 'user' and 'assistant' keys, got:\n{json.dumps(examples, indent=4)}"
+            )
+
+        # Generate hash for examples, schema, and system prompt
+        hash = sha256(
+            json.dumps(
+                (examples, schema.model_json_schema(), system_prompt, input_key)
+            ).encode()
+        ).hexdigest()
+
+        # Handle existing collection with different hash
+        if collection_name in self.get_collections():
+            stored_pattern_name = self.get_metadata(collection_name=collection_name)[
+                "pattern_name"
+            ]
+
+            # Verify pattern name matches
+            if pattern_name != stored_pattern_name:
                 raise ValueError(
-                    f'Collection "{collection_name}" already exists with a different pattern name "{stored_name}" from the one provided "{pattern_name}". To overwrite the collection, delete the collection first.'
+                    f'Collection "{collection_name}" exists with different pattern name "{stored_pattern_name}". Delete collection first to overwrite'
                 )
 
-        current_hash = sha256(json.dumps(data).encode()).hexdigest()
-        stored_hash = self.get_metadata(collection_name=collection_name)["hash"]
+            stored_hash = self.get_metadata(collection_name=collection_name)["hash"]
+            if hash == stored_hash:
+                log.info(
+                    f'Pattern "{pattern_name}" already loaded into collection "{collection_name}".'
+                )
+                return
 
-        if current_hash == stored_hash:
-            log.info(
-                f'Pattern "{pattern_name}" already loaded into collection "{collection_name}"'
-            )
-            return
+            # Handle hash mismatch
+            if not self.auto_update:
+                log.warn(
+                    f'Pattern "{pattern_name}" was updated. To update, set auto_update=True or manually delete and reload collection.'
+                )
+                return
 
-        if self.auto_update:
             log.info(
                 f'Pattern "{pattern_name}" was updated. Updating collection "{collection_name}"'
             )
             self.delete_collection(collection_name)
-            self._add_from_file(
-                path, collection_name=collection_name, pattern_name=pattern_name
-            )
-            self.index(collection_name, "time_added", "float")
-        else:
-            log.warn(
-                f'Pattern "{pattern_name}" was updated. To update the collection, set auto_update=True when initializing the DB or manually call db.delete_collection("{collection_name}") and db.load_pattern("{path}")'
-            )
 
-    def _add_from_file(
-        self,
-        path: str,
-        collection_name: str,
-        pattern_name: str = None,
-        **kwargs,
-    ) -> str:
-        """
-        Add documents to a collection from a file.
-
-        This method reads a file and adds the documents it contains to a collection. The file can be in either JSON or YAML format. The collection name is inferred from the file name, but can be overridden by passing a `collection_name` parameter.
-
-        The file should contain a dictionary with at least a `data` key, which contains a list of dictionaries. Each dictionary in the `data` list represents a document, and should contain a `input` key with the document's input. Additional keys in the dictionary are treated as metadata for the document.
-
-        Parameters:
-        - path (str): The path to the file to read.
-        - collection_name (str): The name of the collection to add the documents to.
-        - pattern_name (str, optional): The name of the pattern to associate with the collection. Defaults to None.
-
-        Returns:
-        - str: The collection that the documents were added to.
-        """
-        prev = time()
-
-        log.info(f'Populating collection "{collection_name}" with {path}')
-
-        data = self.load_from_file(path)
-
-        metadata = {k: v for k, v in data.items() if k != "examples"}
-        metadata["time_added"] = None
-
-        if "system_prompt" not in metadata:
-            log.warn(
-                f"Pattern {collection_name} does not contain a system_prompt. This may lead to unexpected behavior. May alternatively be passed when calling the LLM."
-            )
-
-        metadata["components"] = [
-            key for key in metadata.keys() if key != "system_prompt"
-        ]
-        metadata["pattern_name"] = pattern_name or file_name(path)
-        metadata["hash"] = sha256(json.dumps(data).encode()).hexdigest()
-
+        # Create new collection
         self.create_collection(
             collection_name=collection_name,
-            metadata=metadata,
-            **kwargs,
+            metadata={
+                "pattern_name": pattern_name,
+                "schema": schema.model_json_schema(),
+                "system_prompt": system_prompt,
+                "input_key": input_key,
+                "hash": hash,
+                "doc_metadata_properties": [
+                    "time_added",
+                ],
+                **kwargs,
+            },
         )
 
-        if "examples" in data:
-            for item in data["examples"]:
+        if examples:
+            log.info(f'Loading examples into collection "{collection_name}"')
+            prev = time()
+
+            for example in examples:
+                # Validate example against model schema
+                try:
+                    schema.model_validate(example["assistant"])
+                except Exception as e:
+                    raise ValueError(
+                        f"Example doesn't match model schema:\n{json.dumps(example['assistant'], indent=4)}\n\nSchema:\n{json.dumps(schema.model_json_schema(), indent=4)}"
+                    ) from e
+
                 self.add(
-                    **item,
+                    input=example["user"],
                     collection_name=collection_name,
                     base_example=True,
+                    **example["assistant"],
                 )
 
             log.info(
-                f"Added {len(data['examples'])} documents in {(time() - prev):.1f} s"
+                f'Populated collection "{collection_name}" in {time() - prev:.3f} s'
             )
 
-        return collection_name
+        self.index(collection_name, "metadata.time_added", "float")
+
+    @staticmethod
+    def load_from_file(path: str) -> dict:
+        """
+        Load data from a file.
+
+        This method reads a file and loads its contents into a dictionary. The file can be in either JSON or YAML format.
+
+        Parameters:
+        - path (str): The path to the file to read.
+
+        Returns:
+        - dict: The contents of the file as a dictionary.
+        """
+
+        if path.endswith(".json"):
+            with open(path) as f:
+                return json.load(f)
+        elif path.endswith(".yaml"):
+            with open(path) as f:
+                return yaml.load(f, Loader=yaml.FullLoader)
+        else:
+            raise TypeError(
+                f'Filetype "{file_extension(path)}" not supported for "{path}"'
+            )
 
     def create_collection(
         self,
         collection_name: str,
+        distance: str = "cosine",
         metadata: dict = {},
         **kwargs,
     ):
@@ -228,38 +236,40 @@ class DB:
 
         Parameters:
         - collection_name (str): The name of the collection to retrieve.
-        - metadata (dict, optional): Metadata to pass when creating the collection. Defaults to {"hnsw:space": "l2"}.
-        - **kwargs: Additional keyword arguments to pass when retrieving the collection.
+        - distance (str, optional): The distance metric to use for the collection. Defaults to "cosine". Must be one of "cosine", "euclid", "dot", or "manhattan".
+        - metadata (dict, optional): Metadata to pass when creating the collection.
+        - **kwargs: Additional keyword arguments to pass when creating the collection.
         """
-        if collection_name not in self.get_collections():
-            log.info(
-                f'Creating collection "{collection_name}" with metadata:\n{yaml.dump(metadata, default_flow_style=False)}'
-            )
-
-            config = models.VectorParams(
-                size=self.encoder.get_sentence_embedding_dimension(),
-                distance=models.Distance.COSINE,
-            )
-
-            metadata["collection_name"] = collection_name
-            self.client.upsert(
-                collection_name=self.metadata_collection_name,
-                points=[
-                    models.PointStruct(
-                        id=str(uuid.uuid4()),
-                        vector=[0],
-                        payload=metadata,
-                    )
-                ],
-            )
-
-            self.client.create_collection(
-                collection_name=collection_name,
-                vectors_config=config,
-                **kwargs,
-            )
-        else:
+        if collection_name in self.get_collections():
             log.info(f'Collection "{collection_name}" already exists')
+            return
+
+        log.info(
+            f'Creating collection "{collection_name}" with metadata:\n{json.dumps(metadata, indent=4)}'
+        )
+
+        config = models.VectorParams(
+            size=self.encoder.get_sentence_embedding_dimension(),
+            distance=models.Distance[distance.upper()],
+        )
+
+        metadata["collection_name"] = collection_name
+        self.client.upsert(
+            collection_name=self.metadata_collection_name,
+            points=[
+                models.PointStruct(
+                    id=str(uuid.uuid4()),
+                    vector=[0],
+                    payload=metadata,
+                )
+            ],
+        )
+
+        self.client.create_collection(
+            collection_name=collection_name,
+            vectors_config=config,
+            **kwargs,
+        )
 
     def delete_collection(self, collection_name: str):
         if not self.use_remote:
@@ -284,7 +294,7 @@ class DB:
 
     def add(
         self,
-        input: str,
+        input: str | dict,
         collection_name: str,
         time_added: float = None,
         **kwargs,
@@ -295,7 +305,7 @@ class DB:
         This method adds a document to a collection. The document should contain an `input` key with the document's input. Additional keys in the dictionary are treated as metadata for the document.
 
         Parameters:
-        - input (str): The document's input.
+        - input (str | dict): The document's input. If a dict, it must contain at least an "input" (or whatever the pseudonym is) key, to be used as the embedding vector.
         - collection_name (str): The name of the collection to add the document to.
         - time_added (float, optional): The time the document was added in Unix time. Defaults to time().
         - **kwargs: Additional keyword arguments to pass as metadata for the document.
@@ -308,25 +318,84 @@ class DB:
                 f'Collection "{collection_name}" not found in collections {self.get_collections()}. Make sure to load the pattern first or create the collection manually.'
             )
 
-        time_added = time_added or time()
-
+        metadata = self.get_metadata(collection_name=collection_name)
+        input_key = metadata.get("input_key", "input")
         doc_id = str(uuid.uuid4())
+
+        # Extract embedding text
+        embedding_text = input[input_key] if isinstance(input, dict) else input
+        if isinstance(input, dict) and input_key not in input:
+            raise ValueError(f'Input dict must contain "{input_key}" key')
+
+        # Build base document
+        doc = {
+            "input": input,
+            "time_added": time_added or time(),
+            **kwargs,
+        }
+
+        # Handle schema if present
+        if "schema" in metadata:
+            schema_keys = self.get_schema_keys(collection_name)
+            response_data = {k: v for k, v in kwargs.items() if k in schema_keys}
+            doc_metadata = {k: v for k, v in kwargs.items() if k not in schema_keys}
+
+            # Validate response against schema
+            if set(response_data.keys()) != set(schema_keys):
+                raise ValueError(
+                    f"Response {response_data.keys()} doesn't match schema {schema_keys}"
+                )
+
+            doc = {
+                "input": input,
+                "response": response_data,
+                "metadata": {
+                    **doc_metadata,
+                    "id": doc_id,
+                    "embedding_text": embedding_text,
+                    "time_added": doc["time_added"],
+                },
+            }
+
         self.client.upsert(
             collection_name=collection_name,
             points=[
                 models.PointStruct(
                     id=doc_id,
-                    vector=self.encoder.encode(input),
-                    payload={
-                        **kwargs,
-                        "input": input,
-                        "time_added": time_added,
-                    },
+                    vector=self.encoder.encode(embedding_text),
+                    payload=doc,
                 )
             ],
         )
 
-        return {"input": input, "id": doc_id, **kwargs}
+        if "schema" in metadata:
+            self._add_metadata_props(collection_name, doc_metadata.keys())
+
+        return doc
+
+    def _add_metadata_props(self, collection_name: str, new_props: list[str]):
+        current_props = self.get_metadata(collection_name=collection_name)[
+            "doc_metadata_properties"
+        ]
+        new_props = list(set(new_props).union(set(current_props)))
+        if new_props == current_props:
+            return
+
+        log.info(
+            f"Updating {collection_name} metadata doc_metadata_properties to {new_props}"
+        )
+        self.client.set_payload(
+            collection_name=self.metadata_collection_name,
+            payload={"doc_metadata_properties": new_props},
+            points=models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="collection_name",
+                        match=models.MatchValue(value=collection_name),
+                    )
+                ]
+            ),
+        )
 
     def get_metadata(
         self,
@@ -384,7 +453,7 @@ class DB:
         """Get the names of all collections in the database."""
         collections = self.client.scroll(
             collection_name=self.metadata_collection_name,
-            limit=500,
+            limit=99999,
         )[0]
         if len(collections) == 0:
             return []
@@ -398,7 +467,7 @@ class DB:
         """Get the names of all patterns in the database."""
         collections = self.client.scroll(
             collection_name=self.metadata_collection_name,
-            limit=500,
+            limit=99999,
         )[0]
         collections = [
             collection
@@ -452,9 +521,9 @@ class DB:
     def query(
         self,
         collection_name: str,
-        input: str = "",
+        input: str,
         n: int = DEFAULT_RESULT_COUNT,
-        min_d: Union[int, None] = None,
+        min_d: int = None,
         **kwargs,
     ) -> List[dict]:
         """
@@ -487,35 +556,21 @@ class DB:
         - collection_name (str): The name of the pattern or collection to query.
         - input (str): The input to match.
         - n (int, optional): The number of results to return. Defaults to DEFAULT_RESULT_COUNT.
-        - min_d (Union[int, None], optional): The maximum distance for a document to be considered a match. If None, no maximum distance is used.
+        - min_d (int, optional): The maximum distance for a document to be considered a match. If None, no maximum distance is used.
         - where (dict, optional): A dictionary of metadata filters to apply. Defaults to None.
 
         Returns:
         - List[dict]: A list of dictionaries, each representing a matching document. Each dictionary contains the document's input, id, distance from the query input, and metadata.
         """
 
-        if collection_name not in self.get_patterns():
-            if collection_name not in self.get_collections():
-                raise ValueError(
-                    f'Neither pattern nor collection named "{collection_name}" found. Make sure to load the pattern first or create the collection manually.'
-                )
-            else:
-                log.info(
-                    f'No collection associated with pattern "{collection_name}". Using collection "{collection_name}" for query instead.'
-                )
-                collection_name = collection_name
-        else:
-            collection_name = self.get_collection(collection_name)
-
-        if input == "":
-            raise ValueError("Input cannot be empty. Use where method instead.")
-
         if n == -1:
-            n = 20
+            n = self.DEFAULT_MAX_RESULT_COUNT
         elif n < 1:
             return []
 
-        query_filter = self.filter_to_qdrant_filter(kwargs)
+        collection_name = self._get_collection_name(collection_name)
+
+        query_filter = self.filter_to_qdrant_filter(kwargs, collection_name)
 
         docs = self.client.search(
             collection_name=collection_name,
@@ -525,16 +580,8 @@ class DB:
             score_threshold=min_d,
         )
 
-        results = [
-            {
-                "input": doc.payload["input"],
-                "id": doc.id,
-                **doc.payload,
-            }
-            for doc in docs
-        ]
-
-        return results
+        has_schema = "schema" in self.get_metadata(collection_name=collection_name)
+        return self._format_docs(docs, has_schema)
 
     def where(
         self,
@@ -581,6 +628,59 @@ class DB:
         - List[dict]: A list of dictionaries, each representing a matching document. Each dictionary contains the document's input, id, and metadata.
         """
 
+        if n == -1:
+            n = self.DEFAULT_MAX_RESULT_COUNT
+        elif n < 1:
+            return []
+
+        collection_name = self._get_collection_name(collection_name)
+        metadata = self.get_metadata(collection_name=collection_name)
+        has_schema = "schema" in metadata
+
+        schema_properties = (
+            metadata["schema"]["properties"].keys() if has_schema else []
+        )
+        metadata_properties = metadata.get("doc_metadata_properties", [])
+
+        if order_by in schema_properties:
+            order_by = f"response.{order_by}"
+        if order_by in metadata_properties:
+            order_by = f"metadata.{order_by}"
+
+        order_obj = models.OrderBy(
+            key=order_by,
+            direction=order_direction,
+        )
+
+        if "time_added" in metadata_properties:
+            if start and end:
+                if "_and" in kwargs:
+                    kwargs["_and"].append({"time_added": {"gte": start}})
+                    kwargs["_and"].append({"time_added": {"lte": end}})
+                else:
+                    kwargs["_and"] = [
+                        {"time_added": {"gte": start}},
+                        {"time_added": {"lte": end}},
+                    ]
+            elif start:
+                kwargs["time_added"] = {"gte": start}
+            elif end:
+                kwargs["time_added"] = {"lte": end}
+        elif order_by == "time_added":
+            order_obj = None
+
+        scroll_filter = self.filter_to_qdrant_filter(kwargs, collection_name)
+
+        docs = self.client.scroll(
+            collection_name=collection_name,
+            scroll_filter=scroll_filter,
+            limit=n,
+            order_by=order_obj,
+        )[0]
+
+        return self._format_docs(docs, has_schema)
+
+    def _get_collection_name(self, collection_name: str) -> str:
         if collection_name not in self.get_patterns():
             if collection_name not in self.get_collections():
                 raise ValueError(
@@ -588,47 +688,53 @@ class DB:
                 )
             else:
                 log.info(
-                    f'No collection associated with pattern "{collection_name}". Using collection "{collection_name}" for query instead.'
+                    f'No collection associated with pattern "{collection_name}". Using collection "{collection_name}" instead.'
                 )
                 collection_name = collection_name
         else:
             collection_name = self.get_collection(collection_name)
+        return collection_name
 
-        if n == -1:
-            n = 20
-        elif n < 1:
+    def _format_docs(self, docs: List[dict], has_schema: bool) -> List[dict]:
+        if not docs:
             return []
 
-        order_obj = models.OrderBy(key=order_by, direction=order_direction)
-        metadata = self.get_metadata(collection_name=collection_name)
+        if has_schema:
+            return [
+                {
+                    "input": doc.payload["input"],
+                    "response": doc.payload["response"],
+                    "metadata": {
+                        **({"distance": doc.score} if hasattr(doc, "score") else {}),
+                        **doc.payload["metadata"],
+                    },
+                }
+                for doc in docs
+            ]
+        else:
+            return [
+                {
+                    "input": doc.payload["input"],
+                    **({"distance": doc.score} if hasattr(doc, "score") else {}),
+                    **doc.payload,
+                }
+                for doc in docs
+            ]
 
-        if "time_added" in metadata:
-            if start:
-                kwargs["time_added"] = {"gte": start}
-            if end:
-                kwargs["time_added"] = {"lte": end}
-        elif order_by == "time_added":
-            order_obj = None
+    def get_schema_keys(self, collection_name: str) -> List[str]:
+        """
+        Get the keys of the schema components for a collection.
 
-        scroll_filter = self.filter_to_qdrant_filter(kwargs)
+        This method retrieves the keys of the schema components for a collection.
 
-        docs = self.client.scroll(
-            collection_name=collection_name,
-            scroll_filter=scroll_filter,
-            limit=n,
-            order_by=order_obj,
-        )
+        Parameters:
+        - collection_name (str): The name of the collection to retrieve the keys for.
 
-        results = [
-            {
-                "input": doc.payload["input"],
-                "id": doc.id,
-                **doc.payload,
-            }
-            for doc in docs[0]
-        ]
-
-        return results
+        Returns:
+        - List[str]: The keys of the schema components for the collection.
+        """
+        schema = self.get_metadata(collection_name=collection_name)["schema"]
+        return schema["properties"].keys()
 
     def index(self, collection_name: str, component: str, type: str):
         """
@@ -642,6 +748,7 @@ class DB:
         - type (str): The type of index to create. Can be "keyword", "integer", "float", "bool", "geo", "datetime", or "text".
         """
         if not self.use_remote:
+            log.warn(f"Indexing is only supported for remote databases.")
             return
 
         if collection_name not in self.get_collections():
@@ -666,38 +773,23 @@ class DB:
         )
         log.info(f"Indexed {component} in {collection_name} as {type}")
 
-    @staticmethod
-    def load_from_file(path: str) -> dict:
-        """
-        Load data from a file.
-
-        This method reads a file and loads its contents into a dictionary. The file can be in either JSON or YAML format.
-
-        Parameters:
-        - path (str): The path to the file to read.
-
-        Returns:
-        - dict: The contents of the file as a dictionary.
-        """
-
-        if path.endswith(".json"):
-            with open(path) as f:
-                return json.load(f)
-        elif path.endswith(".yaml"):
-            with open(path) as f:
-                return yaml.load(f, Loader=yaml.FullLoader)
-        else:
-            raise TypeError(
-                'Filetype "{filetype}" not supported for "{file}"'.format(
-                    filetype=os.path.splitext(path)[1][1:],
-                    file=path,
-                )
-            )
-
-    @staticmethod
-    def filter_to_qdrant_filter(filter: dict) -> models.Filter:
+    def filter_to_qdrant_filter(
+        self,
+        filter: dict,
+        collection_name: str = None,
+    ) -> models.Filter:
         if not filter or not filter.keys():
             return None
+
+        schema_properties = []
+        metadata_properties = []
+
+        if collection_name:
+            metadata = self.get_metadata(collection_name=collection_name)
+            schema_properties = (
+                metadata["schema"]["properties"].keys() if "schema" in metadata else []
+            )
+            metadata_properties = metadata.get("doc_metadata_properties", [])
 
         def process_filter(key, value):
             if isinstance(value, dict):
@@ -709,6 +801,11 @@ class DB:
                 range = models.DatetimeRange()
             else:
                 range = models.Range()
+
+            if key in schema_properties:
+                key = f"response.{key}"
+            elif key in metadata_properties:
+                key = f"metadata.{key}"
 
             if key == "_and":
                 if not isinstance(operand, List):
@@ -727,17 +824,28 @@ class DB:
                     should=[process_filter(*list(item.items())[0]) for item in operand]
                 )
             elif operator == "eq":
-                return models.FieldCondition(
-                    key=key, match=models.MatchValue(value=operand)
-                )
+                try:
+                    return models.FieldCondition(
+                        key=key, match=models.MatchValue(value=operand)
+                    )
+                except Exception as e:
+                    raise ValueError(
+                        f"Invalid operand {operand} for operator eq. Filter:\n{json.dumps(filter, indent=4)}\n\nError:\n{str(e)}"
+                    )
             elif operator == "ne":
-                return models.Filter(
-                    must_not=[
-                        models.FieldCondition(
-                            key=key, match=models.MatchValue(value=operand)
-                        )
-                    ]
-                )
+                try:
+                    return models.Filter(
+                        must_not=[
+                            models.FieldCondition(
+                                key=key, match=models.MatchValue(value=operand)
+                            )
+                        ]
+                    )
+                except Exception as e:
+                    raise ValueError(
+                        f"Invalid operand {operand} for operator ne. Filter:\n{json.dumps(filter, indent=4)}\n\nError:\n{str(e)}"
+                    )
+
             elif operator == "gt":
                 range.gt = operand
                 return models.FieldCondition(key=key, range=range)
@@ -767,7 +875,9 @@ class DB:
                     key=key, match=models.MatchExcept(**{"except": operand})
                 )
             else:
-                raise ValueError(f"Invalid operator {operator}")
+                raise ValueError(
+                    f"Invalid operator {operator} in filter:\n{json.dumps(filter, indent=4)}"
+                )
 
         must = []
         should = []

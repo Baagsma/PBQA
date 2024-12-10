@@ -1,0 +1,69 @@
+- user:
+    story: King Arin, a just and fair ruler, stood on the balcony of his castle, gazing out at the city below. His wife, the queen, stood beside him, her hand on his arm. "I have a feeling something is wrong," she whispered. Arin smiled reassuringly. "We have the city guards and the knights of the White Rose watching over us. We are safe." Just then, a figure emerged from the shadows on the rooftop. It was Ryker, a former member of the Black Swan faction, who had turned against the king after a falling out with Arin's trusted advisor, Lord Thomas. Ryker drew his dagger and struck, the blade glinting in the moonlight as it found its mark in Arin's chest. The queen screamed, but before she could react, Ryker leapt off the balcony to his death on the stones below. As the queen cradled her dying husband in her arms, Lord Thomas rushed onto the balcony, his face pale with shock. "My lord, my lord!" he cried, but it was too late. King Arin's eyes closed, and he was gone. The queen's eyes narrowed as she looked up at Lord Thomas. "You knew this was coming," she accused. "You and Ryker, you've been planning this for months." Lord Thomas paled further, and for a moment, the queen wondered if she should trust him at all. But then he spoke, his voice steady. "I swear, my queen, I had nothing to do with this. I will do everything in my power to bring Ryker's accomplices to justice."The queen's gaze lingered on Lord Thomas, but for now, she had no choice but to believe him. She gently laid her husband's body down, a plan forming in her mind.
+  assistant:
+    characters:
+      - name: King Arin
+        category: character
+      - name: Queen
+        category: character
+      - name: Ryker
+        category: character
+      - name: Lord Thomas
+        category: character
+    factions:
+      - name: White Rose
+        category: faction
+      - name: Black Swan
+        category: faction
+    relationships:
+      - party_one:
+          name: King Arin
+          category: character
+        party_two:
+          name: Queen
+          category: character
+        relationship: married
+      - party_one:
+          name: Ryker
+          category: character
+        party_two:
+          name: Black Swan
+          category: faction
+        relationship: former member
+      - party_one:
+          name: Lord Thomas
+          category: character
+        party_two:
+          name: King Arin
+          category: character
+        relationship: advisor
+      - party_one:
+          name: Lord Thomas
+          category: character
+        party_two:
+          name: Ryker
+          category: character
+        relationship: possible accomplice
+    story_beats:
+      - pivotal_moment: The queen has a feeling something is wrong
+        relevant_parties:
+          - name: King Arin
+            category: character
+          - name: Queen
+            category: character
+      - pivotal_moment: Ryker kills King Arin
+        relevant_parties:
+          - name: King Arin
+            category: character
+          - name: Ryker
+            category: character
+          - name: Queen
+            category: character
+      - pivotal_moment: The Queen suspects Lord Thomas of being Ryker's accomplice
+        relevant_parties:
+          - name: Queen
+            category: character
+          - name: Lord Thomas
+            category: character
+          - name: Ryker
+            category: character
