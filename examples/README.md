@@ -397,3 +397,10 @@ llm.connect_model(
 )
 llm.link(pattern="weather", model="llama")
 ```
+
+### Store Cache
+To store the cache, the `--slot-save-path` flag must be passed to the llama.cpp server. This will enable the server to save the cache to disk. By default, upon connecting to a model, PBQA will attempt to connect to the slot saving endpoint and check if it is available, enabling the cache saving by default. This feature can be disabled by setting `store_cache=False` in the `llm.connect_model()` method.
+
+Using cache saving effectively circumvents the need to us multiple processes for the each pattern-model pair. When using the `llm.ask()` method, the cache will be loaded into the linked slot automatically. Enabling cache saving significantly speeds up the generation of responses by preventing reprocessing of the same prompts, even between processes.
+
+Note that while this frees up more memory, it comes at the cost of disk space.
