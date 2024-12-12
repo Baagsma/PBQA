@@ -49,6 +49,7 @@ class LLM:
         top_p: float = 1.0,
         max_tokens: int = 4096,
         stop: List[str] = [],
+        store_cache: bool = None,
         **kwargs,
     ) -> dict[str, str]:
         """
@@ -63,6 +64,7 @@ class LLM:
         - top_p (float): The top probability to use for generating responses.
         - max_tokens (int): The maximum number of tokens to use for generating responses.
         - stop (List[str]): Strings to stop the response generation.
+        - store_cache (bool): Whether to save the cache to disk.
         - kwargs: Additional default parameters to pass when querying the LLM server.
 
         Returns:
@@ -78,6 +80,10 @@ class LLM:
         if props == {}:
             raise ValueError(f"Failed to connect to LLM server at {host}:{port}")
 
+        store_cache = (
+            self.can_store_cache(host, port) if store_cache != False else False
+        )
+
         log.info(f'Connected to model "{model}" at {host}:{port}')
 
         self.models[model] = {
@@ -89,6 +95,7 @@ class LLM:
             "max_tokens": max_tokens,
             "stop": stop,
             "total_slots": props.get("total_slots", 1096),
+            "store_cache": store_cache,
             **kwargs,
         }
 
@@ -104,6 +111,31 @@ class LLM:
         except requests.exceptions.RequestException as e:
             log.warn(
                 f"Failed to connect to LLM server at {host}:{port}. Ensure the server is running and the host and port are correct."
+            )
+            return False
+
+    @staticmethod
+    def can_store_cache(host: str, port: int) -> bool:
+        url = f"http://{host}:{port}"
+
+        try:
+            response = requests.post(
+                url + "/slots/0?action=restore",
+                json={"filename": "zppivzcjfxvavwyqxse.bin"},
+            ).json()
+            if "error" in response:
+                if response["error"]["code"] == 400:
+                    log.info(
+                        f"Connection to slot saving endpoint at {host}:{port} successful"
+                    )
+                    return True
+                log.warn(
+                    f"Failed to connect to slot saving endpoint at {host}:{port} with error {response['error']['code']}: {response['error']['message']}"
+                )
+            return False
+        except requests.exceptions.RequestException as e:
+            log.info(
+                f"Failed to connect to slot saving endpoint at {host}:{port}. Disabling cache saving."
             )
             return False
 
@@ -231,6 +263,9 @@ class LLM:
             **parameters,
         }
 
+        if parameters["store_cache"]:
+            self.load_cache(model, pattern, cache_slot)
+
         log.info(
             f"Performing query ({pattern}-{model}) at {parameters['host']}:{parameters['port']} ID slot {cache_slot}"
         )
@@ -257,6 +292,9 @@ class LLM:
             raise ValueError(
                 f"Request to LLM failed: {str(e)}\n\nEnsure the llama.cpp server is running."
             )
+
+        if parameters["store_cache"]:
+            self.save_cache(model, pattern, cache_slot)
 
         return {
             "input": input,
@@ -496,6 +534,38 @@ class LLM:
                 self.cache_slots[model][pattern] = total_slots - 1
 
         return self.cache_slots[model][pattern]
+
+    def load_cache(self, model: str, pattern: str, slot: int):
+        url = f"http://{self.models[model]['host']}:{self.models[model]['port']}"
+
+        try:
+            response = requests.post(
+                url + f"/slots/{slot}?action=restore",
+                json={"filename": f"{pattern}-{model}.bin"},
+            ).json()
+            if "error" in response:
+                if response["error"]["code"] == 400:
+                    log.info(f"Cache for {pattern}-{model} not found")
+                    return
+                log.warn(
+                    f"Failed to load cache for {pattern}-{model} to slot {slot} with error {response['error']['code']}: {response['error']['message']}"
+                )
+                return
+            log.info(f"Loaded cache for {pattern}-{model} to slot {slot}")
+        except:
+            log.warn(f"Failed to load cache for {pattern}-{model} to slot {slot}")
+
+    def save_cache(self, model: str, pattern: str, slot: int):
+        url = f"http://{self.models[model]['host']}:{self.models[model]['port']}"
+
+        try:
+            requests.post(
+                url + f"/slots/{slot}?action=save",
+                json={"filename": f"{pattern}-{model}.bin"},
+            )
+            log.info(f"Saved cache for {pattern}-{model} to slot {slot}")
+        except:
+            log.warn(f"Failed to save cache for {pattern}-{model} to slot {slot}")
 
     def ask(
         self,
