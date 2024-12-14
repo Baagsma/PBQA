@@ -683,6 +683,7 @@ class LLM:
 
         Parameters:
         - input (str): The input to the LLM.
+        - model (str): The model to use for reranking.
         - documents (list[str]): The documents to rerank.
         - n (int, optional): The number of documents to rerank. Defaults to 3.
 
