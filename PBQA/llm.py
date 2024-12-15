@@ -17,7 +17,7 @@ class LLM:
     DEFAULT_HIST_DURATION = 900
     DEFAULT_USER_NAME = "user"
     DEFAULT_ASSISTANT_NAME = "assistant"
-    DEFAULT_RESULT_COUNT = 5
+    DEFAULT_RESULT_COUNT = 50
 
     def __init__(
         self,
@@ -675,9 +675,9 @@ class LLM:
         self,
         input: str,
         model: str,
-        documents: list[str] = [],
+        documents: List[str] = [],
         n: int = DEFAULT_RESULT_COUNT,
-    ) -> dict:
+    ) -> List[dict]:
         """
         Rerank a query using the reranking model.
 
