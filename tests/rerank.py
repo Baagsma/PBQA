@@ -33,7 +33,7 @@ tools = [
 ]
 
 db = DB(host="localhost", port=6333, reset=True)
-llm = LLM(db=db, host="192.168.0.91")
+llm = LLM(db=db, host="localhost")
 llm.connect_model(
     model="rerank",
     port=8080,
