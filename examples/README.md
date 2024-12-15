@@ -368,6 +368,37 @@ Besides queries to the LLM, filters are also used to retrieve examples from the 
 
 By default the `db.where()` method returns the entries in the order they were added to the database, with the most recent entry being the last one. Optionally, the `order_by` parameter can be used to specify a different field to order the entries by and the `order_direction` parameter to specify the order direction ("asc" or "desc"). When using a remote Qdrant server, the component to order the results by must first be indexed using the `db.index()` method. The `db.where()` method also supports the use of the `start` and `end` parameters to filter by time.
 
+## Reranking
+Reranking is a technique that involves a [dedicated model](https://huggingface.co/BAAI/bge-reranker-v2-m3) to rank any provided documents based on their relevance to input. While embeddings can be used to retrieve documents that are semantically similar, reranking can be used for more complex queries at the cost of increased latency. It is recommended to first retrieve relevant documents before ranking them to get the best of both worlds.
+
+Any models that support reranking will be automatically recognized when connected through the `llm.connect_model()` method. This requires `--rerank --pooling rank` to be passed when starting up a llama.cpp server. After connecting to a model, the `llm.rerank()` method can be used to rerank a query using the reranking model.
+
+```python
+from PBQA import DB, LLM
+
+db = DB(path="db")
+llm = LLM(db=db, host="localhost")
+llm.connect_model(
+    model="rerank",
+    port=8080,
+)
+
+options = [
+    "Search tool: The search tool is able to answer questions about current events, historical events, companies, products, and more.",
+    "Weather tool: The weather tool is able to provide information on temperature, humidity, wind speed, and precipitation.",
+    "Math tool: The math tool is able to perform basic arithmetic operations such as addition, subtraction, multiplication, and division.",
+]
+
+result = llm.rerank(
+    "What's 10 + 20?",
+    "rerank",
+    documents=options,
+    n=1,
+)[0]
+```
+
+The example above should return the 'Math tool' as the first result, since it is the most relevant to the input. [See for more info](https://github.com/ggerganov/llama.cpp/pull/9510).
+
 ## Caching
 Unless overridden, queries using the same pattern will use the same system prompt and base examples. This allows a large part of the response to be cached, speeding up generation. This can be disabled by setting use_cache=False in the ask() method.
 

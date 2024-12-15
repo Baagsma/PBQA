@@ -1,11 +1,12 @@
 import json
 import logging
+import math
 from time import time
 from typing import List
-from pydantic import BaseModel
 
 import requests
 import yaml
+from pydantic import BaseModel
 
 from PBQA.db import DB
 
@@ -16,6 +17,7 @@ class LLM:
     DEFAULT_HIST_DURATION = 900
     DEFAULT_USER_NAME = "user"
     DEFAULT_ASSISTANT_NAME = "assistant"
+    DEFAULT_RESULT_COUNT = 50
 
     def __init__(
         self,
@@ -49,7 +51,7 @@ class LLM:
         top_p: float = 1.0,
         max_tokens: int = 4096,
         stop: List[str] = [],
-        store_cache: bool = None,
+        store_cache: bool = True,
         **kwargs,
     ) -> dict[str, str]:
         """
@@ -80,15 +82,16 @@ class LLM:
         if props == {}:
             raise ValueError(f"Failed to connect to LLM server at {host}:{port}")
 
-        store_cache = (
-            self.can_store_cache(host, port) if store_cache != False else False
-        )
+        is_rerank = self.is_rerank(host, port)
+
+        store_cache = store_cache and not is_rerank and self.can_store_cache(host, port)
 
         log.info(f'Connected to model "{model}" at {host}:{port}')
 
         self.models[model] = {
             "host": host,
             "port": port,
+            "is_rerank": is_rerank,
             "temperature": temperature,
             "min_p": min_p,
             "top_p": top_p,
@@ -138,6 +141,26 @@ class LLM:
                 f"Failed to connect to slot saving endpoint at {host}:{port}. Disabling cache saving."
             )
             return False
+
+    @staticmethod
+    def is_rerank(host: str, port: int) -> bool:
+        url = f"http://{host}:{port}"
+
+        try:
+            response = requests.post(
+                url + "/v1/rerank",
+                json={"query": "test", "documents": ["test"]},
+            ).json()
+            log.warn(f"Response: {response}")
+            if "error" in response:
+                log.warn(
+                    f"Failed to connect to reranking endpoint at {host}:{port} with error {response['error']['code']}: {response['error']['message']}"
+                )
+                return False
+            log.info(f"Model at {host}:{port} supports reranking")
+            return True
+        except requests.exceptions.RequestException as e:
+            log.warn(f"Model at {host}:{port} does not support reranking")
 
     @staticmethod
     def get_props(host: str, port: int) -> dict:
@@ -210,6 +233,11 @@ class LLM:
         if model not in self.models:
             raise ValueError(
                 f'Model "{model}" not found in models {self.models.keys()}. Make sure to connect the model first using the `llm.connect_model()` method.'
+            )
+
+        if self.models[model].get("is_rerank", False):
+            raise ValueError(
+                f'Model "{model}" is a reranking model. Make sure to use the `llm.rerank()` method instead of `llm.ask()`.'
             )
 
         prev = time()
@@ -642,3 +670,61 @@ class LLM:
         )
 
         return output
+
+    def rerank(
+        self,
+        input: str,
+        model: str,
+        documents: List[str] = [],
+        n: int = DEFAULT_RESULT_COUNT,
+    ) -> List[dict]:
+        """
+        Rerank a query using the reranking model.
+
+        Parameters:
+        - input (str): The input to the LLM.
+        - model (str): The model to use for reranking.
+        - documents (list[str]): The documents to rerank.
+        - n (int, optional): The number of documents to rerank. Defaults to 3.
+
+        Returns:
+        - dict: The response from the LLM.
+        """
+
+        if not self.models[model].get("is_rerank", False):
+            raise ValueError(
+                f'Model "{model}" is not a reranking model. Make sure to use the `llm.connect_model()` to connect to a reranking model.'
+            )
+
+        if not all(type(document) == str for document in documents):
+            raise ValueError(f"All documents must be strings. Got {documents}")
+
+        try:
+            url = f"http://{self.models[model]['host']}:{self.models[model]['port']}"
+            response = requests.post(
+                url + "/v1/rerank",
+                json={"query": input, "documents": documents},
+            ).json()
+        except requests.exceptions.RequestException as e:
+            raise ValueError(
+                f"Request to reranking server at {self.models[model]['host']}:{self.models[model]['port']} failed: {str(e)}"
+            )
+
+        results = []
+        for result in response["results"]:
+            results.append(
+                {
+                    "index": result["index"],
+                    "document": documents[result["index"]],
+                    "score": sigmoid(result["relevance_score"]),
+                    "raw_score": result["relevance_score"],
+                }
+            )
+
+        sorted_results = sorted(results, key=lambda x: x["score"], reverse=True)
+
+        return sorted_results[:n]
+
+
+def sigmoid(x):
+    return 1 / (1 + math.exp(-x))
