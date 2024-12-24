@@ -12,7 +12,7 @@ Pattern Based Question and Answer (PBQA) is a Python library that provides tools
  - [License](#license-and-acknowledgements)
 
 ## Installation
-PBQA requires Python 3.9 or higher, and can be installed via pip:
+PBQA requires Python 3.12 or higher, and can be installed via pip:
 
 ```sh
 pip install PBQA
