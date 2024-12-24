@@ -96,6 +96,9 @@ class DB:
         input_key: str = "input",
         **kwargs,
     ):
+        if not isinstance(schema, BaseModel):
+            raise ValueError("Schema must be a Pydantic BaseModel")
+
         pattern_name = schema.__name__.lower()
         collection_name = collection_name or pattern_name
 
