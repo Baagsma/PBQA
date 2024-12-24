@@ -151,16 +151,15 @@ class LLM:
                 url + "/v1/rerank",
                 json={"query": "test", "documents": ["test"]},
             ).json()
-            log.warn(f"Response: {response}")
             if "error" in response:
-                log.warn(
+                log.info(
                     f"Failed to connect to reranking endpoint at {host}:{port} with error {response['error']['code']}: {response['error']['message']}"
                 )
                 return False
             log.info(f"Model at {host}:{port} supports reranking")
             return True
         except requests.exceptions.RequestException as e:
-            log.warn(f"Model at {host}:{port} does not support reranking")
+            log.info(f"Model at {host}:{port} does not support reranking")
 
     @staticmethod
     def get_props(host: str, port: int) -> dict:
