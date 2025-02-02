@@ -152,9 +152,6 @@ class LLM:
                 json={"query": "test", "documents": ["test"]},
             ).json()
             if "error" in response:
-                log.info(
-                    f"Failed to connect to reranking endpoint at {host}:{port} with error {response['error']['code']}: {response['error']['message']}"
-                )
                 return False
             log.info(f"Model at {host}:{port} supports reranking")
             return True
@@ -346,6 +343,7 @@ class LLM:
         min_d: float = None,
         user_name: str = DEFAULT_USER_NAME,
         assistant_name: str = DEFAULT_ASSISTANT_NAME,
+        log_messages: bool = False,
         **kwargs,
     ) -> list[dict[str, str]]:
         """
@@ -482,15 +480,16 @@ class LLM:
 
         messages.append(format_role(user_name, input))
 
-        log.info(
-            "Messages:\n"
-            + "".join(
-                [
-                    f'{message["role"][:6]}:\t{message["content"]}\n'
-                    for message in messages
-                ]
+        if log_messages:
+            log.info(
+                "Messages:\n"
+                + "".join(
+                    [
+                        f'{message["role"][:6]}:\t{message["content"]}\n'
+                        for message in messages
+                    ]
+                )
             )
-        )
 
         return messages
 
