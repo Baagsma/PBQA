@@ -96,7 +96,7 @@ class DB:
         input_key: str = "input",
         **kwargs,
     ):
-        if not isinstance(schema, BaseModel):
+        if not issubclass(schema, BaseModel):
             raise ValueError("Schema must be a Pydantic BaseModel")
 
         pattern_name = schema.__name__.lower()
@@ -167,9 +167,6 @@ class DB:
                 "system_prompt": system_prompt,
                 "input_key": input_key,
                 "hash": hash,
-                "doc_metadata_properties": [
-                    "time_added",
-                ],
                 **kwargs,
             },
         )
@@ -197,8 +194,6 @@ class DB:
             log.info(
                 f'Populated collection "{collection_name}" in {time() - prev:.3f} s'
             )
-
-        self.index(collection_name, "metadata.time_added", "float")
 
     @staticmethod
     def load_from_file(path: str) -> dict:
@@ -247,6 +242,14 @@ class DB:
             log.info(f'Collection "{collection_name}" already exists')
             return
 
+        metadata = {
+            "collection_name": collection_name,
+            "doc_metadata_properties": [
+                "time_added",
+            ],
+            **metadata,
+        }
+
         log.info(
             f'Creating collection "{collection_name}" with metadata:\n{json.dumps(metadata, indent=4)}'
         )
@@ -256,7 +259,6 @@ class DB:
             distance=models.Distance[distance.upper()],
         )
 
-        metadata["collection_name"] = collection_name
         self.client.upsert(
             collection_name=self.metadata_collection_name,
             points=[
@@ -273,6 +275,8 @@ class DB:
             vectors_config=config,
             **kwargs,
         )
+
+        self.index(collection_name, "metadata.time_added", "float")
 
     def delete_collection(self, collection_name: str):
         if not self.use_remote:
@@ -448,6 +452,10 @@ class DB:
         if len(metadata) > 1:
             raise ValueError(
                 f"Multiple metadata entries found for {'pattern' if pattern else 'collection'} \"{pattern if pattern else collection_name}\". Make sure there is only one {'pattern' if pattern else 'collection'} named \"{pattern if pattern else collection_name}\" in the database."
+            )
+        elif len(metadata) == 0:
+            raise ValueError(
+                f"No metadata entry found for {'pattern' if pattern else 'collection'} \"{pattern if pattern else collection_name}\". Make sure there is a metadata entry for {'pattern' if pattern else 'collection'} named \"{pattern if pattern else collection_name}\" in the database."
             )
 
         return metadata[0].payload
@@ -681,7 +689,9 @@ class DB:
             order_by=order_obj,
         )[0]
 
-        return self._format_docs(docs, has_schema)
+        output = self._format_docs(docs, has_schema)
+        log.warn(f"output: {output}")
+        return output
 
     def _get_collection_name(self, collection_name: str) -> str:
         if collection_name not in self.get_patterns():

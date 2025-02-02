@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import sys
@@ -62,9 +63,13 @@ for message in messages:
     log.info(f"Response: {exchange['response']['reply']}")
 
 history = db.where(collection_name="conversation")
+ordered_history = sorted(
+    history, key=lambda x: x["metadata"]["time_added"], reverse=True
+)
+log.info(f"History:\n{json.dumps(ordered_history, indent=4)}")
 assert history == sorted(
     history, key=lambda x: x["metadata"]["time_added"], reverse=True
-), f"Expected the history to be sorted by time_added, got {history}"
+), f"Expected the history to be sorted by time_added, got {[exchange['time_added'] for exchange in history]}"
 
 log.info("All tests passed")
 db.delete_collection("conversation")

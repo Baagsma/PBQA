@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import sys
@@ -23,7 +24,7 @@ entries = [
     },
 ]
 
-db = DB(host="localhost", port=6333, reset=True)
+db = DB(host="192.168.0.91", port=6333, reset=True)
 db.create_collection("non_pattern_collection")
 assert db.get_collections() == ["non_pattern_collection"]
 
@@ -47,11 +48,13 @@ assert exchange["text"] == "Paris", f"Expected 'Paris', got {exchange['text']}"
 log.info(f"Query successful: {exchange['text']}")
 
 db.index("non_pattern_collection", "country", "keyword")
-exchange = db.where(
+whole_exchange = db.where(
     "non_pattern_collection",
     n=1,
     country="France",
-)[0]
+)
+log.info(f"Where successful:\n{json.dumps(whole_exchange, indent=4)}")
+exchange = whole_exchange[0]
 assert (
     exchange["input"] == "What is the capital of France?"
 ), f"Expected 'What is the capital of France?', got {exchange['input']}"
