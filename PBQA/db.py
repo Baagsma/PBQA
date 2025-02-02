@@ -276,7 +276,13 @@ class DB:
             **kwargs,
         )
 
-        self.index(collection_name, "metadata.time_added", "float")
+        is_pattern_collection = metadata.get("pattern_name", None) is not None
+
+        self.index(
+            collection_name,
+            "time_added" if not is_pattern_collection else "metadata.time_added",
+            "float",
+        )
 
     def delete_collection(self, collection_name: str):
         if not self.use_remote:
@@ -653,14 +659,21 @@ class DB:
         )
         metadata_properties = metadata.get("doc_metadata_properties", [])
 
-        if order_by in schema_properties:
-            order_by = f"response.{order_by}"
-        if order_by in metadata_properties:
-            order_by = f"metadata.{order_by}"
+        if has_schema:
+            if order_by in schema_properties:
+                order_by = f"response.{order_by}"
+            if order_by in metadata_properties:
+                order_by = f"metadata.{order_by}"
+
+        direction = (
+            models.Direction.DESC
+            if order_direction.lower() == "desc"
+            else models.Direction.ASC
+        )
 
         order_obj = models.OrderBy(
             key=order_by,
-            direction=order_direction,
+            direction=direction,
         )
 
         if "time_added" in metadata_properties:
@@ -690,7 +703,6 @@ class DB:
         )[0]
 
         output = self._format_docs(docs, has_schema)
-        log.warn(f"output: {output}")
         return output
 
     def _get_collection_name(self, collection_name: str) -> str:
@@ -700,9 +712,6 @@ class DB:
                     f'Neither pattern nor collection named "{collection_name}" found. Make sure to load the pattern first or create the collection manually.'
                 )
             else:
-                log.info(
-                    f'No collection associated with pattern "{collection_name}". Using collection "{collection_name}" instead.'
-                )
                 collection_name = collection_name
         else:
             collection_name = self.get_collection(collection_name)
