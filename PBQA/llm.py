@@ -468,11 +468,10 @@ class LLM:
             )  # TODO: If len(hist) == n_hist, remove n oldest responses - something something modulo
 
             # Assert that the history is sorted by time_added
-            assert hist == sorted(
-                hist, key=lambda x: x["metadata"]["time_added"], reverse=True
-            ), f"Expected the history to be sorted by time_added, got {json.dumps(hist, indent=4)}"
-
             hist.reverse()
+            assert hist == sorted(
+                hist, key=lambda x: x["metadata"]["time_added"]
+            ), f"Expected the history to be sorted by time_added, got {json.dumps(hist, indent=4)}"
 
             messages += format(hist)
 
