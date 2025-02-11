@@ -67,6 +67,7 @@ class Agent:
             },
             pattern="weather",
             model="llama",
+            log_input=True,
         )
         weather_obj = weather_query["response"]
 
@@ -86,6 +87,7 @@ class Agent:
             },
             pattern="thinkandanswer",
             model="llama",
+            log_input=True,
         )
 
     def _format_forecast(self, forecast: dict):

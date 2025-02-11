@@ -14,7 +14,7 @@ log = logging.getLogger()
 
 
 class LLM:
-    DEFAULT_HIST_DURATION = 900
+    DEFAULT_HIST_DURATION = 1000
     DEFAULT_USER_NAME = "user"
     DEFAULT_ASSISTANT_NAME = "assistant"
     DEFAULT_RESULT_COUNT = 50
@@ -343,6 +343,7 @@ class LLM:
         min_d: float = None,
         user_name: str = DEFAULT_USER_NAME,
         assistant_name: str = DEFAULT_ASSISTANT_NAME,
+        log_input: bool = False,
         log_messages: bool = False,
         **kwargs,
     ) -> list[dict[str, str]]:
@@ -378,19 +379,55 @@ class LLM:
             if not docs:
                 return []
 
+            pattern_collection_docs = list(docs[0].keys()) == [
+                "input",
+                "response",
+                "metadata",
+            ]
+            has_schema = "schema" in metadata
+
             messages = []
-            for doc in docs:
-                messages.append(
-                    format_role(
-                        user,
-                        doc["input"],
+            if pattern_collection_docs:
+                for doc in docs:
+                    messages.append(
+                        format_role(
+                            user,
+                            doc["input"],
+                        )
                     )
-                )
-                messages.append(
-                    format_role(
-                        assistant,
-                        doc["response"],
+                    messages.append(
+                        format_role(
+                            assistant,
+                            doc["response"],
+                        )
                     )
+            elif has_schema:  # If the docs are from a non-pattern collection
+                response_props = list(metadata["schema"]["properties"].keys())
+                if not all(
+                    prop in doc.keys() for prop in response_props for doc in docs
+                ):
+                    raise ValueError(
+                        f"Response properties {response_props} not found in docs {[list(doc.keys()) for doc in docs]}"
+                    )
+
+                input_props = metadata["doc_input_properties"]
+
+                for doc in docs:
+                    messages.append(
+                        format_role(
+                            user,
+                            {k: v for k, v in doc.items() if k in input_props},
+                        )
+                    )
+                    messages.append(
+                        format_role(
+                            assistant,
+                            {k: v for k, v in doc.items() if k in response_props},
+                        )
+                    )
+            else:
+                raise ValueError(
+                    f"Pattern {pattern} has no schema or metadata. Cannot format messages."
                 )
 
             return messages
@@ -468,11 +505,15 @@ class LLM:
             )  # TODO: If len(hist) == n_hist, remove n oldest responses - something something modulo
 
             # Assert that the history is sorted by time_added
-            assert hist == sorted(
-                hist, key=lambda x: x["metadata"]["time_added"], reverse=True
-            ), f"Expected the history to be sorted by time_added, got {json.dumps(hist, indent=4)}"
-
             hist.reverse()
+            if hist and hasattr(hist[0], "metadata"):
+                assert hist == sorted(
+                    hist, key=lambda x: x["metadata"]["time_added"]
+                ), f"Expected the history to be sorted by time_added, got {json.dumps(hist, indent=4)}"
+            else:
+                assert hist == sorted(
+                    hist, key=lambda x: x["time_added"]
+                ), f"Expected the history to be sorted by time_added, got {json.dumps(hist, indent=4)}"
 
             messages += format(hist)
 
@@ -480,6 +521,8 @@ class LLM:
 
         messages.append(format_role(user_name, input))
 
+        if log_input:
+            log.info(f"Input:\n{json.dumps(messages[-1], indent=4)}")
         if log_messages:
             log.info(
                 "Messages:\n"

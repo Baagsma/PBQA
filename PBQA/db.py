@@ -244,6 +244,9 @@ class DB:
 
         metadata = {
             "collection_name": collection_name,
+            "doc_input_properties": [
+                metadata.get("input_key", "input"),
+            ],
             "doc_metadata_properties": [
                 "time_added",
             ],
@@ -381,10 +384,34 @@ class DB:
             ],
         )
 
+        if type(input) == dict:
+            self._add_input_props(collection_name, input.keys())
         if "schema" in metadata:
             self._add_metadata_props(collection_name, doc_metadata.keys())
 
         return doc
+
+    def _add_input_props(self, collection_name: str, new_props: list[str]):
+        current_props = self.get_metadata(collection_name=collection_name)[
+            "doc_input_properties"
+        ]
+        new_props = list(set(new_props).union(set(current_props)))
+        if new_props == current_props:
+            return
+
+        log.info(f"Updating {collection_name} input properties to {new_props}")
+        self.client.set_payload(
+            collection_name=self.metadata_collection_name,
+            payload={"doc_input_properties": new_props},
+            points=models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="collection_name",
+                        match=models.MatchValue(value=collection_name),
+                    )
+                ]
+            ),
+        )
 
     def _add_metadata_props(self, collection_name: str, new_props: list[str]):
         current_props = self.get_metadata(collection_name=collection_name)[
@@ -662,7 +689,7 @@ class DB:
         if has_schema:
             if order_by in schema_properties:
                 order_by = f"response.{order_by}"
-            if order_by in metadata_properties:
+            if order_by in metadata_properties and has_schema:
                 order_by = f"metadata.{order_by}"
 
         direction = (
@@ -805,6 +832,7 @@ class DB:
 
         schema_properties = []
         metadata_properties = []
+        has_schema = False
 
         if collection_name:
             metadata = self.get_metadata(collection_name=collection_name)
@@ -812,6 +840,7 @@ class DB:
                 metadata["schema"]["properties"].keys() if "schema" in metadata else []
             )
             metadata_properties = metadata.get("doc_metadata_properties", [])
+            has_schema = "schema" in metadata
 
         def process_filter(key, value):
             if isinstance(value, dict):
@@ -826,7 +855,7 @@ class DB:
 
             if key in schema_properties:
                 key = f"response.{key}"
-            elif key in metadata_properties:
+            elif key in metadata_properties and has_schema:
                 key = f"metadata.{key}"
 
             if key == "_and":
