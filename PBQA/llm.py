@@ -681,17 +681,17 @@ class LLM:
 
         metadata = self.db.get_metadata(pattern)
 
-        if (
-            not input
-            or not isinstance(input, str)
-            and not isinstance(input, dict)
-            or (
-                isinstance(input, dict) and metadata.get("input_key", None) not in input
-            )
-        ):
+        if not input or (not isinstance(input, str) and not isinstance(input, dict)):
             raise ValueError(
-                f"Input must be a string or a dictionary with a key named \"{metadata.get('input_key', 'input')}\", got \"{input}\""
+                f"Input must be a string or a dictionary, got \"{type(input).__name__}\""
             )
+        
+        if isinstance(input, dict):
+            input_key = metadata.get("input_key", "input")
+            if not path_exists(input, input_key):
+                raise ValueError(
+                    f"Input dict must contain \"{input_key}\" key/path, got {list(input.keys())}"
+                )
 
         output = self._get_response(
             input=input,
