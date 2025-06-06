@@ -4,3 +4,4 @@ accelerate
 transformers
 qdrant-client
 sentence-transformers
+python-dateutil

@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 import uuid
 from hashlib import sha256
 from time import time
@@ -14,6 +15,97 @@ from qdrant_client import QdrantClient, models
 from sentence_transformers import SentenceTransformer
 
 log = logging.getLogger()
+
+
+def resolve_path(data: dict, path: str):
+    """
+    Resolve a nested path in a dictionary structure.
+    
+    Supports:
+    - Simple keys: "query" -> data["query"]
+    - Dot notation: "user.query" -> data["user"]["query"]
+    - Array indexing: "history[0]" -> data["history"][0]
+    - Negative indexing: "history[-1]" -> data["history"][-1]
+    - Combined: "user.history[0].input" -> data["user"]["history"][0]["input"]
+    
+    Parameters:
+    - data (dict): The dictionary to resolve the path in
+    - path (str): The path to resolve
+    
+    Returns:
+    - The value at the resolved path
+    
+    Raises:
+    - KeyError: If a key in the path doesn't exist
+    - IndexError: If an array index is out of bounds
+    - TypeError: If trying to index a non-indexable type
+    """
+    if not isinstance(data, dict):
+        raise TypeError(f"Expected dict, got {type(data)}")
+    
+    # Simple key access (backward compatibility)
+    if '.' not in path and '[' not in path:
+        return data[path]
+    
+    # Parse the path into segments
+    current = data
+    
+    # Split on dots but preserve array indexing within segments
+    segments = path.split('.')
+    
+    for segment in segments:
+        # Check if this segment has array indexing
+        if '[' in segment and ']' in segment:
+            # Extract key and indices: "history[0][1]" -> key="history", indices=["0", "1"]
+            match = re.match(r'^([^[]+)(.*)$', segment)
+            if not match:
+                raise ValueError(f"Invalid path segment: {segment}")
+            
+            key, indices_part = match.groups()
+            
+            # Navigate to the key first
+            if key:
+                if not isinstance(current, dict) or key not in current:
+                    raise KeyError(f"Key '{key}' not found in path '{path}'")
+                current = current[key]
+            
+            # Parse and apply all indices
+            index_matches = re.findall(r'\[([^\]]+)\]', indices_part)
+            for index_str in index_matches:
+                try:
+                    index = int(index_str)
+                    if not isinstance(current, (list, tuple)):
+                        raise TypeError(f"Cannot index {type(current)} with integer in path '{path}'")
+                    current = current[index]
+                except ValueError:
+                    raise ValueError(f"Invalid array index '{index_str}' in path '{path}'")
+                except IndexError:
+                    raise IndexError(f"Index {index} out of bounds in path '{path}'")
+        else:
+            # Simple key access
+            if not isinstance(current, dict) or segment not in current:
+                raise KeyError(f"Key '{segment}' not found in path '{path}'")
+            current = current[segment]
+    
+    return current
+
+
+def path_exists(data: dict, path: str) -> bool:
+    """
+    Check if a path exists in a dictionary structure.
+    
+    Parameters:
+    - data (dict): The dictionary to check
+    - path (str): The path to check
+    
+    Returns:
+    - bool: True if the path exists, False otherwise
+    """
+    try:
+        resolve_path(data, path)
+        return True
+    except (KeyError, IndexError, TypeError, ValueError):
+        return False
 
 
 class DB:
@@ -339,9 +431,12 @@ class DB:
         doc_id = str(uuid.uuid4())
 
         # Extract embedding text
-        embedding_text = input[input_key] if isinstance(input, dict) else input
-        if isinstance(input, dict) and input_key not in input:
-            raise ValueError(f'Input dict must contain "{input_key}" key')
+        if isinstance(input, dict):
+            if not path_exists(input, input_key):
+                raise ValueError(f'Input dict must contain "{input_key}" key/path')
+            embedding_text = resolve_path(input, input_key)
+        else:
+            embedding_text = input
 
         # Build base document
         doc = {

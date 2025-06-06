@@ -8,7 +8,7 @@ import requests
 import yaml
 from pydantic import BaseModel
 
-from PBQA.db import DB
+from PBQA.db import DB, resolve_path, path_exists
 
 log = logging.getLogger()
 
@@ -476,11 +476,12 @@ class LLM:
         if input:
             query_input = input
             if type(input) == dict:
-                if metadata.get("input_key", "input") not in input:
+                input_key = metadata.get("input_key", "input")
+                if not path_exists(input, input_key):
                     raise ValueError(
-                        f"Input dict must contain {metadata['input_key']} key, got {input.keys()}"
+                        f"Input dict must contain {input_key} key/path, got {input.keys()}"
                     )
-                query_input = input[metadata["input_key"]]
+                query_input = resolve_path(input, input_key)
 
             examples = self.db.query(
                 pattern,
@@ -689,7 +690,7 @@ class LLM:
             )
         ):
             raise ValueError(
-                f'Input must be a string or a dictionary with a key named "{metadata.get('input_key', 'input')}", got "{input}"'
+                f"Input must be a string or a dictionary with a key named \"{metadata.get('input_key', 'input')}\", got \"{input}\""
             )
 
         output = self._get_response(

@@ -5,6 +5,9 @@ Pattern Based Question and Answer (PBQA) is a Python library that provides tools
 
  - [Installation](#installation)
  - [Usage](#usage)
+ - [Patterns](#patterns)
+ - [Nested Input Keys](#nested-input-keys)
+ - [Cache](#cache)
  - [Roadmap](#roadmap)
  - [Relevant Literature](#relevant-literature)
  - [Contributing](#contributing)
@@ -44,7 +47,7 @@ db = DB(path="db")
 db.load_pattern(
     schema=Weather,
     examples="weather.yaml",
-    system_prompt="Your job is to translate the user's input into a weather query object."
+    system_prompt="Your job is to translate the user's input into a weather query object.",
     input_key="query",
 )
 
@@ -130,7 +133,46 @@ Beyond the Pydantic schema, the user can also provide a system prompt and exampl
 
 *Note.* While the assistant's response is validated against the schema when loaded, the user's input is free to be anything. This allows the user to provide any information they want (see [tool use](examples/tool_use.py)).
 
-Any samples passed to the LLM through the `examples` parameter will be used as "base examples" for the pattern, which are examples that are loaded as part of every query to the LLM. Since caching is enabled by default, if your llama.cpp server is initialized correctly, the increased prompt processing time for these examples only occurs once per pattern (see [cache](#cache)). In addition to these base examples, more examples can also be added later for the LLM to learn from. 
+Any samples passed to the LLM through the `examples` parameter will be used as "base examples" for the pattern, which are examples that are loaded as part of every query to the LLM. Since caching is enabled by default, if your llama.cpp server is initialized correctly, the increased prompt processing time for these examples only occurs once per pattern (see [cache](#cache)). In addition to these base examples, more examples can also be added later for the LLM to learn from.
+
+### Nested Input Keys
+PBQA supports nested access to complex data structures through the `input_key` parameter. This enables working with hierarchical data like conversation histories, nested API responses, and complex application states.
+
+#### Supported Syntax
+- **Simple keys**: `"query"` - Direct dictionary access (backward compatible)
+- **Dot notation**: `"user.query"` - Navigate nested dictionaries
+- **Array indexing**: `"history[0]"` - Access array elements by index
+- **Negative indexing**: `"history[-1]"` - Access array elements from the end
+- **Combined paths**: `"user.history[0].input"` - Mix dots and array access
+
+#### Examples
+```python
+# Simple key access (existing behavior)
+db.load_pattern(
+    schema=Response,
+    input_key="query"
+)
+
+# Nested object access
+db.load_pattern(
+    schema=Response,
+    input_key="user.query"
+)
+
+# Array indexing
+db.load_pattern(
+    schema=Response,
+    input_key="messages[0]"
+)
+
+# Complex nested access
+db.load_pattern(
+    schema=Response,
+    input_key="conversation.history[-1].content"
+)
+```
+
+This feature enables PBQA to work seamlessly with complex conversation architectures and structured data formats while maintaining full backward compatibility with existing patterns. 
 
 ### Cache
 Unless overridden, queries using the same pattern will use the same system prompt and base examples, allowing a large part of the response to be cached. This avoids the need reprocess those parts of the response, speeding up the query. This can be disabled by setting `use_cache=False` when invoking `llm.ask()`.
