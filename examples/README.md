@@ -101,6 +101,32 @@ The `n_hist` parameter specifies the number of previous interactions to consider
 
 After each response is generated, the exchange is added to the database for future reference. By default, the database has a "collection" for each pattern that was loaded. When unspecified, the default collection from which the history is retrieved is the pattern name. This can be overridden using the `history_name` parameter in `llm.ask()`.
 
+### Custom History
+For use cases where conversation history is stored externally or requires custom formatting, the `custom_history` parameter allows bypassing PBQA's database history lookup entirely. When provided, `n_hist` is ignored and the supplied history is used directly:
+
+```python
+# Store messages in your own system
+messages = [
+    {"input": "Hello!", "response": {"reply": "Hi there!"}, "metadata": {}},
+    {"input": "How are you?", "response": {"reply": "I'm doing well!"}, "metadata": {}},
+]
+
+response = llm.ask(
+    input="What did I just ask?",
+    pattern="conversation",
+    model="llama",
+    custom_history=messages,  # Use custom history instead of db.where()
+)
+```
+
+This is useful when:
+- Conversation history is stored in a separate database (SQL, Redis, etc.)
+- Messages need runtime transformation (concatenation, time gap annotations, etc.)
+- Multiple consecutive messages from the same role should be combined
+- Cross-application conversation context needs to be shared
+
+The history format matches PBQA's standard: a list of dictionaries with `input`, `response`, and `metadata` keys. The messages are formatted into user-assistant pairs exactly as if they were retrieved from the database.
+
 ## Function Calling
 Another common use case for LLMs is function calling. While PBQA doesn't call functions directly, using patterns it's easy to create valid structured objects to be used as input for tools. By combining patterns, it's possible to create an agent capable of navigating between different tasks and handling complex interactions.
 
