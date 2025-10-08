@@ -517,7 +517,7 @@ class LLM:
 
             # Assert that the history is sorted by time_added
             hist.reverse()
-            if hist and hasattr(hist[0], "metadata"):
+            if hist and "metadata" in hist[0]:
                 assert hist == sorted(
                     hist, key=lambda x: x["metadata"]["time_added"]
                 ), f"Expected the history to be sorted by time_added, got {json.dumps(hist, indent=4)}"
