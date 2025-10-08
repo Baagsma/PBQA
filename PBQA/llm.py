@@ -186,6 +186,7 @@ class LLM:
         cache_slot: int = None,
         schema: BaseModel = None,
         stop: List[str] = [],
+        custom_history: List[dict] = None,
         **kwargs,
     ) -> dict:
         """
@@ -258,6 +259,7 @@ class LLM:
             n_hist=n_hist,
             n_example=n_example,
             min_d=min_d,
+            custom_history=custom_history,
             **kwargs,
         )
 
@@ -345,6 +347,7 @@ class LLM:
         assistant_name: str = DEFAULT_ASSISTANT_NAME,
         log_input: bool = False,
         log_messages: bool = False,
+        custom_history: List[dict] = None,
         **kwargs,
     ) -> list[dict[str, str]]:
         """
@@ -363,6 +366,8 @@ class LLM:
         - min_d (float): The minimum distance between the input and the examples.
         - user_name (str): The name of the user.
         - assistant_name (str): The name of the assistant.
+        - custom_history (List[dict]): Custom conversation history to use instead of database retrieval.
+          When provided, n_hist is ignored and database history lookup is bypassed.
         - kwargs: Additional arguments to pass when querying the database.
 
         Returns:
@@ -496,7 +501,12 @@ class LLM:
         log.info(f"Examples: {len(examples)}/{n_example}")
 
         hist = []
-        if n_hist:
+        if custom_history is not None:
+            # Use custom history directly, bypass database
+            log.info(f"Using custom history: {len(custom_history)} entries")
+            hist = custom_history
+            messages += format(hist)
+        elif n_hist:
             hist = self.db.where(
                 collection_name=history_name or pattern,
                 start=time() - hist_duration,
@@ -507,7 +517,7 @@ class LLM:
 
             # Assert that the history is sorted by time_added
             hist.reverse()
-            if hist and hasattr(hist[0], "metadata"):
+            if hist and "metadata" in hist[0]:
                 assert hist == sorted(
                     hist, key=lambda x: x["metadata"]["time_added"]
                 ), f"Expected the history to be sorted by time_added, got {json.dumps(hist, indent=4)}"
@@ -518,7 +528,7 @@ class LLM:
 
             messages += format(hist)
 
-        log.info(f"History: {len(hist)}/{n_hist}")
+        log.info(f"History: {len(hist)}/{n_hist if custom_history is None else 'custom'}")
 
         messages.append(format_role(user_name, input))
 
@@ -653,6 +663,7 @@ class LLM:
         cache_slot: int = None,
         schema: BaseModel = None,
         stop: List[str] = [],
+        custom_history: List[dict] = None,
         **kwargs,
     ) -> dict:
         """
@@ -673,6 +684,9 @@ class LLM:
         - cache_slot (int): The cache slot to use for the response.
         - schema (BaseModel): The schema to use for the response.
         - stop (List[str]): Strings to stop the response generation.
+        - custom_history (List[dict]): Custom conversation history to use instead of database retrieval.
+          Format: [{"input": str|dict, "response": dict, "metadata": dict}, ...]
+          When provided, n_hist is ignored and database history lookup is bypassed.
         - kwargs: Additional arguments to pass when querying the database.
 
         Returns:
@@ -708,6 +722,7 @@ class LLM:
             cache_slot=cache_slot,
             schema=schema,
             stop=stop,
+            custom_history=custom_history,
             **kwargs,
         )
 
