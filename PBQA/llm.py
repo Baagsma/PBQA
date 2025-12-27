@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from PBQA.db import DB, resolve_path, path_exists
 
-log = logging.getLogger()
+log = logging.getLogger("PBQA.llm")
 
 
 class LLM:

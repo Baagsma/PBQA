@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from qdrant_client import QdrantClient, models
 from sentence_transformers import SentenceTransformer
 
-log = logging.getLogger()
+log = logging.getLogger("PBQA.db")
 
 
 def resolve_path(data: dict, path: str):
