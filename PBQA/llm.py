@@ -266,11 +266,13 @@ class LLM:
         metadata = self.db.get_metadata(pattern)
 
         # If the schema consists of a single str component, pass None instead of the schema
+        # Exception: If the string has enum constraints (Literal types), keep the schema
         schema = schema or metadata["schema"]
         if (
             len(schema["properties"]) == 1
             and (prop_name := list(schema["properties"].keys())[0])
             and schema["properties"][prop_name]["type"] == "string"
+            and "enum" not in schema["properties"][prop_name]
         ):
             log.info(
                 f"Schema consists of a single string component ({prop_name}). Passing None instead of the schema."

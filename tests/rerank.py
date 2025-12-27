@@ -3,12 +3,19 @@ import os
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 from PBQA import DB, LLM  # run with python -m tests.rerank
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(os.path.dirname(SCRIPT_DIR))
 
-logging.basicConfig(level=logging.INFO)
+# Load environment variables
+load_dotenv()
+
+# Configure logging
+log_level = os.getenv("TEST_LOG_LEVEL", "INFO")
+logging.basicConfig(level=getattr(logging, log_level))
 log = logging.getLogger()
 
 
@@ -32,11 +39,18 @@ tools = [
     "Python REPL: Use the Python REPL to execute Python code. The Python REPL can be used to execute Python code and display the results. The Python REPL can be used to interact with a Python REPL in a web browser. Use the Python REPL to execute simple Python code, such as mathematical calculations or string operations, e.g., counting the number of words or letters in a string.",
 ]
 
-db = DB(host="localhost", port=6333, reset=True)
-llm = LLM(db=db, host="localhost")
+# Load configuration from environment
+qdrant_host = os.getenv("QDRANT_HOST", "localhost")
+qdrant_port = int(os.getenv("QDRANT_PORT", 6333))
+reset_db = os.getenv("TEST_RESET_DB", "true").lower() == "true"
+rerank_host = os.getenv("RERANK_HOST", "localhost")
+rerank_port = int(os.getenv("RERANK_PORT", 8080))
+
+db = DB(host=qdrant_host, port=qdrant_port, reset=reset_db)
+llm = LLM(db=db, host=rerank_host)
 llm.connect_model(
     model="rerank",
-    port=8080,
+    port=rerank_port,
 )
 
 result = llm.rerank(

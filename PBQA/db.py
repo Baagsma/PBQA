@@ -405,6 +405,7 @@ class DB:
         input: str | dict,
         collection_name: str,
         time_added: float = None,
+        doc_id: str = None,
         **kwargs,
     ) -> dict:
         """
@@ -416,10 +417,15 @@ class DB:
         - input (str | dict): The document's input. If a dict, it must contain at least an "input" (or whatever the pseudonym is) key, to be used as the embedding vector.
         - collection_name (str): The name of the collection to add the document to.
         - time_added (float, optional): The time the document was added in Unix time. Defaults to time().
+        - doc_id (str, optional): The document ID (must be a valid UUID string or unsigned integer). If not provided, a UUID will be generated. Providing an ID enables upsert behavior.
         - **kwargs: Additional keyword arguments to pass as metadata for the document.
 
         Returns:
         - dict: A dictionary representing the added document. The dictionary contains the document's input, id, and metadata.
+
+        Note:
+        - doc_id must be either a valid UUID string (e.g., "12345678-1234-1234-1234-123456789abc") or an unsigned integer.
+        - Arbitrary strings are not allowed by Qdrant.
         """
         if collection_name not in self.get_collections():
             raise ValueError(
@@ -428,7 +434,7 @@ class DB:
 
         metadata = self.get_metadata(collection_name=collection_name)
         input_key = metadata.get("input_key", "input")
-        doc_id = str(uuid.uuid4())
+        doc_id = doc_id or str(uuid.uuid4())
 
         # Extract embedding text
         if isinstance(input, dict):
@@ -445,8 +451,13 @@ class DB:
             **kwargs,
         }
 
+        # Add ID to non-schema collections for easier reference
+        is_schema_collection = "schema" in metadata
+        if not is_schema_collection:
+            doc["id"] = doc_id
+
         # Handle schema if present
-        if "schema" in metadata:
+        if is_schema_collection:
             schema_keys = self.get_schema_keys(collection_name)
             response_data = {k: v for k, v in kwargs.items() if k in schema_keys}
             doc_metadata = {k: v for k, v in kwargs.items() if k not in schema_keys}
@@ -485,6 +496,69 @@ class DB:
             self._add_metadata_props(collection_name, doc_metadata.keys())
 
         return doc
+
+    def upsert(
+        self,
+        input: str | dict,
+        collection_name: str,
+        doc_id: str,
+        time_added: float = None,
+        **kwargs,
+    ) -> dict:
+        """
+        Upsert a document to a collection (insert or update by ID).
+
+        This method adds a document if it doesn't exist, or updates it if the ID already exists.
+        Unlike add(), this requires a doc_id to be explicitly provided for upsert semantics.
+
+        Parameters:
+        - input (str | dict): The document's input. If a dict, it must contain at least an "input" (or whatever the pseudonym is) key, to be used as the embedding vector.
+        - collection_name (str): The name of the collection to upsert the document to.
+        - doc_id (str): The document ID (required for upsert, must be a valid UUID string or unsigned integer). If this ID exists, the document will be updated; otherwise, it will be created.
+        - time_added (float, optional): The time the document was added in Unix time. Defaults to time().
+        - **kwargs: Additional keyword arguments to pass as metadata for the document.
+
+        Returns:
+        - dict: A dictionary representing the upserted document. The dictionary contains the document's input, id, and metadata.
+
+        Note:
+        - doc_id must be either a valid UUID string (e.g., "12345678-1234-1234-1234-123456789abc") or an unsigned integer.
+        - Arbitrary strings are not allowed by Qdrant.
+        """
+        return self.add(
+            input=input,
+            collection_name=collection_name,
+            time_added=time_added,
+            doc_id=doc_id,
+            **kwargs,
+        )
+
+    def delete(
+        self,
+        collection_name: str,
+        doc_id: str,
+    ) -> None:
+        """
+        Delete a document from a collection by ID.
+
+        Parameters:
+        - collection_name (str): The name of the collection to delete from.
+        - doc_id (str): The document ID to delete.
+
+        Returns:
+        - None
+        """
+        if collection_name not in self.get_collections():
+            raise ValueError(
+                f'Collection "{collection_name}" not found in collections {self.get_collections()}.'
+            )
+
+        self.client.delete(
+            collection_name=collection_name,
+            points_selector=models.PointIdsList(
+                points=[doc_id]
+            ),
+        )
 
     def _add_input_props(self, collection_name: str, new_props: list[str]):
         current_props = self.get_metadata(collection_name=collection_name)[

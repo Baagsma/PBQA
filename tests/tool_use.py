@@ -8,13 +8,19 @@ from time import strftime
 from typing import Annotated
 
 import requests
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(os.path.dirname(SCRIPT_DIR))
 from PBQA import DB, LLM  # run with python -m tests.tool_use
 
-logging.basicConfig(level=logging.INFO)
+# Load environment variables
+load_dotenv()
+
+# Configure logging
+log_level = os.getenv("TEST_LOG_LEVEL", "INFO")
+logging.basicConfig(level=getattr(logging, log_level))
 log = logging.getLogger()
 
 
@@ -99,7 +105,14 @@ class Agent:
         }
 
 
-db = DB(host="localhost", port=6333, reset=True)
+# Load configuration from environment
+qdrant_host = os.getenv("QDRANT_HOST", "localhost")
+qdrant_port = int(os.getenv("QDRANT_PORT", 6333))
+reset_db = os.getenv("TEST_RESET_DB", "true").lower() == "true"
+llm_host = os.getenv("LLM_HOST", "localhost")
+llm_port = int(os.getenv("LLM_PORT", 8080))
+
+db = DB(host=qdrant_host, port=qdrant_port, reset=reset_db)
 db.load_pattern(
     schema=Weather,
     examples="examples/weather.yaml",
@@ -113,10 +126,10 @@ db.load_pattern(
     input_key="query",
 )
 
-llm = LLM(db=db, host="localhost")
+llm = LLM(db=db, host=llm_host)
 llm.connect_model(
     model="llama",
-    port=8080,
+    port=llm_port,
     stop=["<|eot_id|>", "<|start_header_id|>", "<|im_end|>"],
     temperature=0,
 )

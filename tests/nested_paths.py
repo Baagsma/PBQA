@@ -4,13 +4,19 @@ import os
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
 from pydantic import BaseModel
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(os.path.dirname(SCRIPT_DIR))
 from PBQA import DB  # run with python -m tests.nested_paths
 
-logging.basicConfig(level=logging.INFO)
+# Load environment variables
+load_dotenv()
+
+# Configure logging
+log_level = os.getenv("TEST_LOG_LEVEL", "INFO")
+logging.basicConfig(level=getattr(logging, log_level))
 log = logging.getLogger()
 
 
@@ -83,9 +89,13 @@ def test_path_resolution():
 def test_db_integration():
     """Test nested paths with actual DB operations"""
     log.info("Testing DB integration with nested paths...")
-    
+
+    qdrant_host = os.getenv("QDRANT_HOST", "localhost")
+    qdrant_port = int(os.getenv("QDRANT_PORT", 6333))
+    reset_db = os.getenv("TEST_RESET_DB", "true").lower() == "true"
+
     try:
-        db = DB(host="localhost", port=6333, reset=True)
+        db = DB(host=qdrant_host, port=qdrant_port, reset=reset_db)
     except ValueError as e:
         if "Failed to connect to Qdrant server" in str(e):
             log.warning("Skipping DB integration tests - Qdrant server not available")
@@ -207,9 +217,13 @@ def test_db_integration():
 def test_complex_courseofaction():
     """Test the exact CourseOfAction use case mentioned in the issue"""
     log.info("Testing complex CourseOfAction structure...")
-    
+
+    qdrant_host = os.getenv("QDRANT_HOST", "localhost")
+    qdrant_port = int(os.getenv("QDRANT_PORT", 6333))
+    reset_db = os.getenv("TEST_RESET_DB", "true").lower() == "true"
+
     try:
-        db = DB(host="localhost", port=6333, reset=True)
+        db = DB(host=qdrant_host, port=qdrant_port, reset=reset_db)
     except ValueError as e:
         if "Failed to connect to Qdrant server" in str(e):
             log.warning("Skipping complex CourseOfAction tests - Qdrant server not available")

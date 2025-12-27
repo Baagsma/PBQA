@@ -406,7 +406,7 @@ db = DB(path="db")
 llm = LLM(db=db, host="localhost")
 llm.connect_model(
     model="rerank",
-    port=8080,
+    port=8090,
 )
 
 options = [

@@ -4,11 +4,18 @@ import os
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(os.path.dirname(SCRIPT_DIR))
 from PBQA import DB  # run with python -m tests.non_pattern_collection
 
-logging.basicConfig(level=logging.INFO)
+# Load environment variables
+load_dotenv()
+
+# Configure logging
+log_level = os.getenv("TEST_LOG_LEVEL", "INFO")
+logging.basicConfig(level=getattr(logging, log_level))
 log = logging.getLogger()
 
 entries = [
@@ -24,7 +31,12 @@ entries = [
     },
 ]
 
-db = DB(host="localhost", port=6333, reset=True)
+# Load configuration from environment
+qdrant_host = os.getenv("QDRANT_HOST", "localhost")
+qdrant_port = int(os.getenv("QDRANT_PORT", 6333))
+reset_db = os.getenv("TEST_RESET_DB", "true").lower() == "true"
+
+db = DB(host=qdrant_host, port=qdrant_port, reset=reset_db)
 db.create_collection("non_pattern_collection")
 assert db.get_collections() == ["non_pattern_collection"]
 
