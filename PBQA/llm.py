@@ -52,6 +52,7 @@ class LLM:
         max_tokens: int = 4096,
         stop: List[str] = [],
         store_cache: bool = True,
+        strict_schema: bool = False,
         **kwargs,
     ) -> dict[str, str]:
         """
@@ -67,6 +68,10 @@ class LLM:
         - max_tokens (int): The maximum number of tokens to use for generating responses.
         - stop (List[str]): Strings to stop the response generation.
         - store_cache (bool): Whether to save the cache to disk.
+        - strict_schema (bool): Whether to set additionalProperties to false on all
+          object types in JSON schemas. Required for servers using llguidance-based
+          grammar enforcement, which defaults additionalProperties to true per the
+          JSON Schema spec.
         - kwargs: Additional default parameters to pass when querying the LLM server.
 
         Returns:
@@ -99,6 +104,7 @@ class LLM:
             "stop": stop,
             "total_slots": props.get("total_slots", 1096),
             "store_cache": store_cache,
+            "strict_schema": strict_schema,
             **kwargs,
         }
 
@@ -279,6 +285,9 @@ class LLM:
                 f"Schema consists of a single string component ({prop_name}). Passing None instead of the schema."
             )
             schema = None
+
+        if schema and self.models[model].get("strict_schema", False):
+            schema = _lock_schema(schema)
 
         parameters = {**self.models[model], **kwargs}
 
@@ -784,6 +793,35 @@ class LLM:
         sorted_results = sorted(results, key=lambda x: x["score"], reverse=True)
 
         return sorted_results[:n]
+
+
+def _lock_schema(schema: dict) -> dict:
+    """Set additionalProperties: false on all object types in a JSON schema.
+
+    This is required for grammar-constrained generation engines (e.g. llguidance)
+    that default additionalProperties to true per the JSON Schema spec, which
+    allows the model to output arbitrary extra keys.
+    """
+    schema = json.loads(json.dumps(schema))  # deep copy
+    defs = schema.get("$defs", {})
+
+    def _lock(node):
+        if not isinstance(node, dict):
+            return
+        if node.get("type") == "object":
+            node.setdefault("additionalProperties", False)
+        for value in node.values():
+            if isinstance(value, dict):
+                _lock(value)
+            elif isinstance(value, list):
+                for item in value:
+                    _lock(item)
+
+    _lock(schema)
+    for defn in defs.values():
+        _lock(defn)
+
+    return schema
 
 
 def sigmoid(x):

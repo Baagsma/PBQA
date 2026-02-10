@@ -1,0 +1,6 @@
+- user:
+    request: "Turn off the kitchen lights"
+  assistant:
+    entity_id: "light.kitchen"
+    action: "turn_off"
+    attributes: null

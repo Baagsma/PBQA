@@ -1,0 +1,9 @@
+- user:
+    objective: "Check the weather forecast for Sunday and report conditions"
+    breakdown: "Follow-up to previous weather query. User wants Sunday's forecast after Saturday was provided. Location implied same as previous query. Continuation of the weekend weather request."
+  assistant:
+    steps:
+      - description: "Check the weather forecast for Sunday"
+        intent: "retrieve"
+      - description: "Report the Sunday weather conditions to the user"
+        intent: "execute"
