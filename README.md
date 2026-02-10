@@ -7,6 +7,7 @@ Pattern Based Question and Answer (PBQA) is a Python library that provides tools
  - [Usage](#usage)
  - [Patterns](#patterns)
  - [Nested Input Keys](#nested-input-keys)
+ - [Strict Schema (llguidance)](#strict-schema-llguidance)
  - [Cache](#cache)
  - [Roadmap](#roadmap)
  - [Relevant Literature](#relevant-literature)
@@ -172,7 +173,22 @@ db.load_pattern(
 )
 ```
 
-This feature enables PBQA to work seamlessly with complex conversation architectures and structured data formats while maintaining full backward compatibility with existing patterns. 
+This feature enables PBQA to work seamlessly with complex conversation architectures and structured data formats while maintaining full backward compatibility with existing patterns.
+
+### Strict Schema (llguidance)
+When using a llama.cpp server built with [llguidance](https://github.com/guidance-ai/llguidance) support (`-DLLAMA_LLGUIDANCE=ON`), enable `strict_schema` on `connect_model()` to get faster and more reliable structured generation:
+
+```py
+llm.connect_model(
+    model="llama",
+    port=8080,
+    strict_schema=True,  # required for llguidance servers
+)
+```
+
+This sets `additionalProperties: false` on all object types in the JSON schema before sending it to the server. llguidance follows the JSON Schema spec where `additionalProperties` defaults to `true`, which without this flag allows the model to output arbitrary extra keys and effectively disables structural enforcement on nested objects.
+
+Benchmarks show a **2-3x speedup** in structured generation throughput compared to the default GBNF grammar engine, with improved reliability on complex nested schemas.
 
 ### Cache
 Unless overridden, queries using the same pattern will use the same system prompt and base examples, allowing a large part of the response to be cached. This avoids the need reprocess those parts of the response, speeding up the query. This can be disabled by setting `use_cache=False` when invoking `llm.ask()`.
@@ -211,7 +227,7 @@ Future features in no particular order with no particular timeline:
  - Parallel query execution
  - Combining multi-shot prompting with message history
  - Multimodal support
- - Further speed improvements (possibly [batching](https://github.com/guidance-ai/guidance?tab=readme-ov-file#guidance-acceleration))
+ - ~~Further speed improvements (possibly [batching](https://github.com/guidance-ai/guidance?tab=readme-ov-file#guidance-acceleration))~~ [llguidance support](#strict-schema-llguidance)
  - Support for more LLM backends
 
 ## Relevant Literature
