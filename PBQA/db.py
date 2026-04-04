@@ -267,6 +267,8 @@ class DB:
             log.info(f'Loading examples into collection "{collection_name}"')
             prev = time()
 
+            schema_keys = list(schema.model_json_schema().get("properties", {}).keys())
+
             for example in examples:
                 # Validate example against model schema
                 try:
@@ -276,12 +278,22 @@ class DB:
                         f"Example doesn't match model schema:\n{json.dumps(example['assistant'], indent=4)}\n\nSchema:\n{json.dumps(schema.model_json_schema(), indent=4)}"
                     ) from e
 
-                self.add(
-                    input=example["user"],
-                    collection_name=collection_name,
-                    base_example=True,
-                    **example["assistant"],
-                )
+                if schema_keys:
+                    # Normal schema — spread assistant keys as kwargs for schema filtering
+                    self.add(
+                        input=example["user"],
+                        collection_name=collection_name,
+                        base_example=True,
+                        **example["assistant"],
+                    )
+                else:
+                    # Placeholder/empty schema — pass response directly to preserve data
+                    self.add(
+                        input=example["user"],
+                        collection_name=collection_name,
+                        base_example=True,
+                        response=example["assistant"],
+                    )
 
             log.info(
                 f'Populated collection "{collection_name}" in {time() - prev:.3f} s'
@@ -406,6 +418,7 @@ class DB:
         collection_name: str,
         time_added: float = None,
         doc_id: str = None,
+        response: dict = None,
         **kwargs,
     ) -> dict:
         """
@@ -418,6 +431,9 @@ class DB:
         - collection_name (str): The name of the collection to add the document to.
         - time_added (float, optional): The time the document was added in Unix time. Defaults to time().
         - doc_id (str, optional): The document ID (must be a valid UUID string or unsigned integer). If not provided, a UUID will be generated. Providing an ID enables upsert behavior.
+        - response (dict, optional): Explicit response data. When provided, this is stored as the response directly,
+          bypassing kwargs-based schema filtering. Useful for placeholder/dynamic schemas where response keys
+          aren't known at collection creation time.
         - **kwargs: Additional keyword arguments to pass as metadata for the document.
 
         Returns:
@@ -459,14 +475,20 @@ class DB:
         # Handle schema if present
         if is_schema_collection:
             schema_keys = self.get_schema_keys(collection_name)
-            response_data = {k: v for k, v in kwargs.items() if k in schema_keys}
-            doc_metadata = {k: v for k, v in kwargs.items() if k not in schema_keys}
 
-            # Validate response against schema
-            if set(response_data.keys()) != set(schema_keys):
-                raise ValueError(
-                    f"Response {response_data.keys()} doesn't match schema {schema_keys}"
-                )
+            if response is not None:
+                # Explicit response provided — use directly, all kwargs are metadata
+                response_data = response
+                doc_metadata = dict(kwargs)
+            else:
+                response_data = {k: v for k, v in kwargs.items() if k in schema_keys}
+                doc_metadata = {k: v for k, v in kwargs.items() if k not in schema_keys}
+
+                # Validate response against schema
+                if set(response_data.keys()) != set(schema_keys):
+                    raise ValueError(
+                        f"Response {response_data.keys()} doesn't match schema {schema_keys}"
+                    )
 
             doc = {
                 "input": input,
