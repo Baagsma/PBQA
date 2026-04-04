@@ -6,7 +6,7 @@ README = (HERE / "README.md").read_text()
 
 setup(
     name="PBQA",
-    version="1.3.0",
+    version="1.3.1",
     description="Pattern Based Question and Answer (PBQA) is a Python library that provides tools for querying LLMs and managing text embeddings. It combines guided generation with multi-shot prompting to improve response quality and consistency.",
     long_description=README,
     long_description_content_type="text/markdown",
