@@ -411,6 +411,9 @@ class LLM:
             )
             schema = None
 
+        if schema:
+            schema = _resolve_refs(schema)
+
         if schema and self.models[model].get("strict_schema", False):
             schema = _lock_schema(schema)
 
@@ -972,6 +975,42 @@ class LLM:
         sorted_results = sorted(results, key=lambda x: x["score"], reverse=True)
 
         return sorted_results[:n]
+
+
+def _resolve_refs(schema: dict) -> dict:
+    """Inline all $ref references in a JSON schema.
+
+    Pydantic generates schemas with $ref pointers to $defs for enums, nested
+    models, etc. Not all grammar engines resolve these correctly, which can
+    cause enum fields to be unconstrained — the LLM then outputs objects
+    instead of valid enum values.
+    """
+    schema = json.loads(json.dumps(schema))  # deep copy
+    defs = schema.get("$defs", {})
+
+    def _resolve(node):
+        if not isinstance(node, dict):
+            return node
+        if "$ref" in node:
+            ref_path = node["$ref"]  # e.g. "#/$defs/Difficulty"
+            if ref_path.startswith("#/$defs/"):
+                def_name = ref_path[len("#/$defs/"):]
+                if def_name in defs:
+                    resolved = json.loads(json.dumps(defs[def_name]))
+                    return _resolve(resolved)
+            return node
+        return {k: _resolve_value(v) for k, v in node.items()}
+
+    def _resolve_value(value):
+        if isinstance(value, dict):
+            return _resolve(value)
+        if isinstance(value, list):
+            return [_resolve_value(item) for item in value]
+        return value
+
+    resolved = _resolve(schema)
+    resolved.pop("$defs", None)
+    return resolved
 
 
 def _lock_schema(schema: dict) -> dict:
