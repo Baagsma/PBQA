@@ -193,9 +193,9 @@ Benchmarks show a **2-3x speedup** in structured generation throughput compared 
 ### Cache
 Unless overridden, queries using the same pattern will use the same system prompt and base examples, allowing a large part of the response to be cached. This avoids the need reprocess those parts of the response, speeding up the query. This can be disabled by setting `use_cache=False` when invoking `llm.ask()`.
 
-PBQA allocates a slot/process for each pattern-model pair in the llama.cpp server. Set `-np` to the number of unique combinations of patterns and models you want to enable caching for. Slots are allocated in the order they are requested, and if the number of available slots is exceeded, the last slot is reused for any excess pattern-model pairs.
+With llama.cpp, PBQA persists a separate KV cache per pattern-model pair to disk using the server's slot save/restore mechanism. Start the server with `--slot-save-path <dir>` to enable this; before each query the pattern's cache file (`{pattern}-{model}.bin`) is restored, and it is saved again afterwards. This way interleaved queries across many patterns each keep their own cached prefix — even across server restarts — without needing a parallel slot per pattern. If the server does not expose slot saving, PBQA detects this at connect time and transparently falls back to the server's regular prompt caching.
 
-You can manually assign a cache slot to a specific pattern-model pair using the `link` method. Optionally, a specific cache slot can be provided, up to the number of available processes. The cache slot used for a query can also be overridden by passing the `cache_slot` parameter to the `llm.ask()` method.
+Cache slots are managed internally per backend; the `cache_slot` parameter on `llm.ask()` and `llm.link()` is deprecated and ignored.
 
 ```py
 from PBQA import DB, LLM
