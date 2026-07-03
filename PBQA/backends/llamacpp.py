@@ -145,8 +145,12 @@ class LlamaCppBackend(Backend):
             response = requests.post(
                 self.config.base_url + "/v1/rerank",
                 json={"query": "test", "documents": ["test"]},
-            ).json()
-            if "error" in response:
+            )
+            if response.status_code != 200:
+                # A router 404ing with e.g. {"detail": "Not Found"} has no
+                # "error" key and would otherwise pass for rerank support
+                return False
+            if "error" in response.json():
                 return False
             log.info(f"Model at {self.config.address} supports reranking")
             return True
