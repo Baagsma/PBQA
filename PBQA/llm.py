@@ -519,6 +519,7 @@ class LLM:
                 }
             ]
 
+        base_examples = []
         if include_base_examples:
             base_examples = self.db.where(
                 collection_name=pattern,
@@ -530,6 +531,7 @@ class LLM:
 
         log.info(f"Base examples: {len(base_examples)}")
 
+        examples = []
         if input:
             query_input = input
             if type(input) == dict:
@@ -582,7 +584,8 @@ class LLM:
 
         log.info(f"History: {len(hist)}/{n_hist if custom_history is None else 'custom'}")
 
-        messages.append(format_role(user_name, input))
+        if input is not None:
+            messages.append(format_role(user_name, input))
 
         if log_input:
             log.info(f"Input:\n{json.dumps(messages[-1], indent=4)}")
@@ -636,6 +639,57 @@ class LLM:
         self.pattern_models[pattern] = model
 
         log.info(f'Linked pattern "{pattern}" to model "{model}"')
+
+        if self.models[model].warm_on_link:
+            self.warm(pattern, model)
+
+    def warm(
+        self,
+        pattern: str,
+        model: str = None,
+    ) -> None:
+        """
+        Prefill a pattern's fixed prefix (system prompt + base examples) so
+        subsequent queries hit the backend's prefix cache.
+
+        Only meaningful for engines whose cache does not survive a server
+        restart (e.g. vLLM's in-VRAM prefix cache); a no-op for llama.cpp,
+        whose slot caches are persisted to disk. Called automatically by
+        `link()` when the backend requests it. Warming failures are logged,
+        never raised.
+
+        Parameters:
+        - pattern (str): The pattern whose prefix to warm.
+        - model (str): The model to warm the prefix on. Defaults to the model
+          linked to the pattern.
+        """
+
+        if not model:
+            model = self.pattern_models.get(pattern, None)
+            if not model:
+                raise ValueError(
+                    f'No model provided and no model assigned for pattern "{pattern}". Make sure to call `llm.link()` or provide a model when calling `llm.warm()`.'
+                )
+        if model not in self.models:
+            raise ValueError(
+                f'Model "{model}" not found. Make sure to connect the model first using the `llm.connect_model()` method.'
+            )
+
+        backend = self.models[model]
+
+        messages = self._format_messages(pattern=pattern, input=None)
+        if not messages:
+            log.info(
+                f'Nothing to warm for pattern "{pattern}" (no system prompt or base examples)'
+            )
+            return
+
+        try:
+            backend.warm(messages, pattern, model)
+        except Exception as e:
+            log.warning(
+                f'Failed to warm pattern "{pattern}" on {backend.config.address}: {e}'
+            )
 
     def ask(
         self,
