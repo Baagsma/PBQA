@@ -1,9 +1,10 @@
-"""Unit tests for the backend abstraction. No live server required.
+"""Unit tests for the llama.cpp backend and engine-agnostic routing. No live
+server required.
 
-The HTTP transport used by backends is replaced with an in-memory fake, so
-these tests pin down the exact wire behavior: payload shape, cache slot
-save/restore sequencing, capability probing, fallback routing, and schema
-preprocessing.
+The HTTP transport used by backends is replaced with an in-memory fake (see
+tests/mock_transport.py), so these tests pin down the exact wire behavior:
+payload shape, cache slot save/restore sequencing, capability probing,
+fallback routing, and schema preprocessing.
 
 Usage:
     python -m pytest tests/test_backends.py
@@ -11,176 +12,21 @@ Usage:
 
 import json
 import logging
-import os
-import sys
-from enum import Enum
-from pathlib import Path
-from urllib.parse import urlsplit
 
 import pytest
 import requests as real_requests
-from pydantic import BaseModel
 
-SCRIPT_DIR = Path(__file__).parent.resolve()
-sys.path.insert(0, os.path.dirname(SCRIPT_DIR))
-
-import PBQA.backends.llamacpp as llamacpp_module
 from PBQA import LLM
-
-
-# =============================================================================
-# Fake transport
-# =============================================================================
-
-
-class FakeResponse:
-    def __init__(self, payload):
-        self._payload = payload
-
-    def json(self):
-        return self._payload
-
-
-class FakeServer:
-    """Mimics a llama.cpp server's HTTP surface, recording every call."""
-
-    def __init__(self, rerank=False, total_slots=1):
-        self.calls = []  # (method, path_with_query, body)
-        self.rerank = rerank
-        self.total_slots = total_slots
-        self.chat_content = json.dumps({"temperature": 20.0, "condition": "sunny"})
-        self.chat_error = None  # exception to raise on /v1/chat/completions
-        self.usage = {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
-        self.rerank_results = []
-
-    def handle(self, method, path, body):
-        self.calls.append((method, path, body))
-
-        if method == "GET" and path == "/health":
-            return FakeResponse({"status": "ok"})
-        if method == "GET" and path == "/props":
-            return FakeResponse({"total_slots": self.total_slots})
-        if path == "/v1/rerank":
-            if self.rerank:
-                return FakeResponse({"results": self.rerank_results})
-            return FakeResponse({"error": {"code": 501, "message": "no rerank"}})
-        if path.startswith("/slots/"):
-            if "action=restore" in path and body["filename"].startswith(
-                "zppivzcjfxvavwyqxse"
-            ):
-                # The capability probe uses a garbage filename; a 400 means
-                # the endpoint exists (slot saving enabled on the server)
-                return FakeResponse({"error": {"code": 400, "message": "not found"}})
-            return FakeResponse({"id_slot": 0})
-        if path == "/v1/chat/completions":
-            if self.chat_error:
-                raise self.chat_error
-            return FakeResponse(
-                {
-                    "choices": [{"message": {"content": self.chat_content}}],
-                    "usage": self.usage,
-                }
-            )
-
-        raise AssertionError(f"Unexpected request: {method} {path}")
-
-    def calls_to(self, path_prefix):
-        return [c for c in self.calls if c[1].startswith(path_prefix)]
-
-
-class FakeTransport:
-    """Drop-in replacement for the requests module inside backend code."""
-
-    exceptions = real_requests.exceptions
-
-    def __init__(self):
-        self.servers = {}  # "host:port" -> FakeServer
-
-    def add_server(self, host, port, **kwargs):
-        server = FakeServer(**kwargs)
-        self.servers[f"{host}:{port}"] = server
-        return server
-
-    def _dispatch(self, method, url, body):
-        parts = urlsplit(url)
-        server = self.servers.get(parts.netloc)
-        if server is None:
-            raise real_requests.exceptions.ConnectionError(f"no server at {url}")
-        path = parts.path + (f"?{parts.query}" if parts.query else "")
-        return server.handle(method, path, body)
-
-    def get(self, url, **kwargs):
-        return self._dispatch("GET", url, None)
-
-    def post(self, url, headers=None, data=None, json=None, **kwargs):
-        body = json if json is not None else (
-            globals()["json"].loads(data) if data is not None else None
-        )
-        return self._dispatch("POST", url, body)
-
-
-# =============================================================================
-# Stub DB
-# =============================================================================
-
-
-class Weather(BaseModel):
-    temperature: float
-    condition: str
-
-
-class Reply(BaseModel):
-    reply: str
-
-
-class Color(str, Enum):
-    red = "red"
-    blue = "blue"
-
-
-class Item(BaseModel):
-    color: Color
-    note: str
-
-
-class StubDB:
-    def __init__(self, schema=None):
-        self.schema = schema or Weather.model_json_schema()
-        self.base_examples = [
-            {
-                "input": "how hot is it?",
-                "response": {"temperature": 25.0, "condition": "clear"},
-                "metadata": {},
-            }
-        ]
-
-    def get_patterns(self):
-        return ["weather"]
-
-    def get_metadata(self, pattern):
-        return {"schema": self.schema, "system_prompt": "You report the weather."}
-
-    def where(self, **kwargs):
-        return list(self.base_examples)
-
-    def query(self, *args, **kwargs):
-        return []
-
-
-# =============================================================================
-# Fixtures
-# =============================================================================
-
-MODEL = "testmodel"
-HOST = "fakehost"
-PORT = 8080
-
-
-@pytest.fixture
-def transport(monkeypatch):
-    transport = FakeTransport()
-    monkeypatch.setattr(llamacpp_module, "requests", transport)
-    return transport
+from tests.mock_transport import (
+    HOST,
+    MODEL,
+    PORT,
+    FakeResponse,
+    Item,
+    Reply,
+    StubDB,
+    Weather,
+)
 
 
 def make_llm(transport, schema=None, **connect_kwargs):
@@ -412,6 +258,13 @@ def test_link_then_ask_without_model(transport):
     assert result["response"] == {"temperature": 20.0, "condition": "sunny"}
 
 
+def test_link_does_not_warm_llamacpp(transport):
+    llm, server = make_llm(transport)
+    llm.link(pattern="weather", model=MODEL)
+    # Durable slot caches: no prefill request on link
+    assert server.calls_to("/v1/chat/completions") == []
+
+
 # =============================================================================
 # Fallback routing
 # =============================================================================
@@ -445,9 +298,6 @@ def test_server_reported_error_aborts_without_failover(transport):
     llm, primary = make_llm(transport)
     fallback_server = transport.add_server("fallbackhost", 9090)
     llm.add_fallback(model=MODEL, host="fallbackhost", port=9090)
-
-    primary.chat_content = None
-    primary.chat_error = None
 
     def bad_handle(method, path, body, _orig=primary.handle):
         if path == "/v1/chat/completions":
