@@ -191,11 +191,11 @@ This sets `additionalProperties: false` on all object types in the JSON schema b
 Benchmarks show a **2-3x speedup** in structured generation throughput compared to the default GBNF grammar engine, with improved reliability on complex nested schemas.
 
 ### Engines
-PBQA can talk to different inference engines through the same API. The engine is chosen per model when connecting:
+PBQA can talk to different inference engines through the same API. By default the engine is detected automatically when connecting — llama.cpp is recognized by its `/props` endpoint, vLLM by the `owned_by` field on `/v1/models` — so the same client code works regardless of which engine is behind the port:
 
 ```py
-llm.connect_model(model="llama", port=8080)                  # llama.cpp (default)
-llm.connect_model(model="qwen", port=8000, engine="vllm")    # vLLM
+llm.connect_model(model="llama", port=8080)                  # auto-detected
+llm.connect_model(model="qwen", port=8000, engine="vllm")    # explicit
 ```
 
 The pattern layer, schema handling, and `ask()` semantics are identical across engines; only the server interaction differs:

@@ -7,7 +7,7 @@ from typing import List
 import requests
 from pydantic import BaseModel
 
-from PBQA.backends import ENGINES, Backend, BackendConfig
+from PBQA.backends import ENGINES, Backend, BackendConfig, detect_engine
 from PBQA.db import DB, resolve_path, path_exists
 from PBQA.schema import lock_schema, resolve_refs
 
@@ -58,7 +58,7 @@ class LLM:
         stop: List[str] = [],
         store_cache: bool = True,
         strict_schema: bool = False,
-        engine: str = "llamacpp",
+        engine: str = "auto",
         **kwargs,
     ) -> Backend:
         """
@@ -78,8 +78,10 @@ class LLM:
           object types in JSON schemas. Required for servers using llguidance-based
           grammar enforcement, which defaults additionalProperties to true per the
           JSON Schema spec.
-        - engine (str): The inference engine serving the model. One of
-          "llamacpp" (default) or any other registered backend.
+        - engine (str): The inference engine serving the model. "auto"
+          (default) probes the server and picks the matching registered
+          backend; pass an explicit name ("llamacpp", "vllm", ...) to skip
+          detection.
         - kwargs: Additional default parameters to pass when querying the LLM server.
 
         Returns:
@@ -91,9 +93,10 @@ class LLM:
         if not host:
             raise ValueError("Failed to connect to LLM server. No host provided.")
 
-        if engine not in ENGINES:
+        if engine != "auto" and engine not in ENGINES:
             raise ValueError(
-                f'Unknown engine "{engine}". Available engines: {list(ENGINES.keys())}'
+                f'Unknown engine "{engine}". Available engines: '
+                f'{["auto"] + list(ENGINES.keys())}'
             )
 
         config = BackendConfig(
@@ -110,6 +113,9 @@ class LLM:
                 **kwargs,
             },
         )
+
+        if engine == "auto":
+            engine = detect_engine(config)
 
         backend = ENGINES[engine](config)
         backend.connect()
@@ -141,7 +147,8 @@ class LLM:
         - port (int): The port of the fallback server.
         - lazy (bool): If True, defer connection validation until first use.
         - engine (str): The inference engine of the fallback server. Defaults
-          to the same engine as the primary backend.
+          to the same engine as the primary backend; "auto" probes the server
+          at registration time (the server must be reachable, even with lazy).
         - kwargs: Override temperature, max_tokens, etc. for this backend.
         """
         if model not in self.models:
@@ -165,11 +172,16 @@ class LLM:
 
         if engine is None:
             backend_cls = type(primary)
+        elif engine == "auto":
+            # Requires the fallback server to be reachable now, even when
+            # lazy — probing is the whole point of "auto"
+            backend_cls = ENGINES[detect_engine(config)]
         elif engine in ENGINES:
             backend_cls = ENGINES[engine]
         else:
             raise ValueError(
-                f'Unknown engine "{engine}". Available engines: {list(ENGINES.keys())}'
+                f'Unknown engine "{engine}". Available engines: '
+                f'{["auto"] + list(ENGINES.keys())}'
             )
 
         fallback = backend_cls(config)

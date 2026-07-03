@@ -67,6 +67,15 @@ class Backend(ABC):
         self.is_rerank = False
         self.store_cache = False
 
+    @classmethod
+    def detect(cls, config: BackendConfig) -> bool:
+        """Return True if the server at config looks like this engine.
+
+        Used to resolve engine="auto". Must not raise and should be a single
+        cheap HTTP probe against an engine-specific endpoint.
+        """
+        return False
+
     @abstractmethod
     def connect(self) -> None:
         """Probe the server and populate capabilities.

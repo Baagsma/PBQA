@@ -69,6 +69,14 @@ class FakeServer:
             return FakeResponse({"status": "ok"})
         if method == "GET" and path == "/props":
             return FakeResponse({"total_slots": self.total_slots})
+        if method == "GET" and path == "/v1/models":
+            # llama.cpp serves the OpenAI endpoint too, with its own owner
+            return FakeResponse(
+                {
+                    "object": "list",
+                    "data": [{"id": MODEL, "object": "model", "owned_by": "llamacpp"}],
+                }
+            )
         if path == "/v1/rerank":
             if self.rerank:
                 return FakeResponse({"results": self.rerank_results})
@@ -113,9 +121,17 @@ class FakeVLLMServer:
 
         if method == "GET" and path == "/health":
             return FakeResponse({}, status_code=200)
+        if method == "GET" and path == "/props":
+            # FastAPI 404 with a JSON body, as real vLLM answers it
+            return FakeResponse({"detail": "Not Found"}, status_code=404)
         if method == "GET" and path == "/v1/models":
             return FakeResponse(
-                {"object": "list", "data": [{"id": self.model_id, "object": "model"}]}
+                {
+                    "object": "list",
+                    "data": [
+                        {"id": self.model_id, "object": "model", "owned_by": "vllm"}
+                    ],
+                }
             )
         if path == "/v1/chat/completions":
             if self.chat_error:

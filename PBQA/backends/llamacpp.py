@@ -19,6 +19,7 @@ from PBQA.backends.base import Backend, BackendConfig
 log = logging.getLogger("PBQA.backends.llamacpp")
 
 DEFAULT_TOTAL_SLOTS = 1096
+DETECT_TIMEOUT = 5
 
 
 class LlamaCppBackend(Backend):
@@ -28,6 +29,18 @@ class LlamaCppBackend(Backend):
         super().__init__(config)
         self.total_slots = DEFAULT_TOTAL_SLOTS
         self._slots = {}  # pattern -> slot id
+
+    @classmethod
+    def detect(cls, config: BackendConfig) -> bool:
+        # /props only exists on llama.cpp; other OpenAI-compatible servers
+        # (vLLM among them) answer it with a 404
+        try:
+            response = requests.get(
+                config.base_url + "/props", timeout=DETECT_TIMEOUT
+            )
+            return response.status_code == 200
+        except requests.exceptions.RequestException:
+            return False
 
     def connect(self) -> None:
         props = self.get_props()
@@ -117,6 +130,10 @@ class LlamaCppBackend(Backend):
     def get_props(self) -> dict:
         try:
             response = requests.get(self.config.base_url + "/props")
+            if response.status_code != 200:
+                # A reachable server without /props is not llama.cpp; an
+                # error body would otherwise pass for valid (non-empty) props
+                return {}
             return response.json()
         except requests.exceptions.RequestException:
             raise ValueError(

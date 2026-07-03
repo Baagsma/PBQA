@@ -22,6 +22,8 @@ from PBQA.backends.base import Backend, BackendConfig
 
 log = logging.getLogger("PBQA.backends.vllm")
 
+DETECT_TIMEOUT = 5
+
 
 class VLLMBackend(Backend):
     warm_on_link = True  # prefix cache is VRAM-only; prefill after (re)starts
@@ -29,6 +31,21 @@ class VLLMBackend(Backend):
     def __init__(self, config: BackendConfig):
         super().__init__(config)
         self.model_id = None  # served model name, discovered on connect
+
+    @classmethod
+    def detect(cls, config: BackendConfig) -> bool:
+        # vLLM stamps owned_by="vllm" on /v1/models; llama.cpp serves the
+        # endpoint too, so the owner is the discriminator, not the status
+        try:
+            response = requests.get(
+                config.base_url + "/v1/models", timeout=DETECT_TIMEOUT
+            )
+            if response.status_code != 200:
+                return False
+            data = response.json().get("data", [])
+            return bool(data) and data[0].get("owned_by") == "vllm"
+        except (requests.exceptions.RequestException, ValueError):
+            return False
 
     def connect(self) -> None:
         try:

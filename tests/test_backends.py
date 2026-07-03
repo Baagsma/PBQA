@@ -65,8 +65,76 @@ def test_connect_unknown_engine(transport):
 
 def test_connect_unreachable_server(transport):
     llm = LLM(db=StubDB(), host="downhost")
-    with pytest.raises(ValueError, match="Failed to get properties"):
+    with pytest.raises(ValueError, match="Could not detect"):
         llm.connect_model(model=MODEL, port=PORT, host="downhost")
+
+
+def test_connect_unreachable_server_explicit_engine(transport):
+    llm = LLM(db=StubDB(), host="downhost")
+    with pytest.raises(ValueError, match="Failed to get properties"):
+        llm.connect_model(
+            model=MODEL, port=PORT, host="downhost", engine="llamacpp"
+        )
+
+
+# =============================================================================
+# Engine auto-detection
+# =============================================================================
+
+
+def test_auto_detects_llamacpp(transport):
+    from PBQA.backends import LlamaCppBackend
+
+    transport.add_server(HOST, PORT)
+    llm = LLM(db=StubDB(), host=HOST)
+    backend = llm.connect_model(model=MODEL, port=PORT)
+
+    assert isinstance(backend, LlamaCppBackend)
+
+
+def test_auto_detects_vllm(transport):
+    from PBQA.backends import VLLMBackend
+
+    transport.add_vllm_server(HOST, PORT)
+    llm = LLM(db=StubDB(), host=HOST)
+    backend = llm.connect_model(model=MODEL, port=PORT)
+
+    assert isinstance(backend, VLLMBackend)
+    assert backend.model_id == "qwen3.6-27b-nvfp4"
+
+
+def test_detect_probes_are_mutually_exclusive(transport):
+    from PBQA.backends import LlamaCppBackend, VLLMBackend, BackendConfig
+
+    transport.add_server(HOST, PORT)
+    transport.add_vllm_server(HOST, PORT + 1)
+    llama_config = BackendConfig(host=HOST, port=PORT)
+    vllm_config = BackendConfig(host=HOST, port=PORT + 1)
+
+    assert LlamaCppBackend.detect(llama_config) is True
+    assert LlamaCppBackend.detect(vllm_config) is False
+    assert VLLMBackend.detect(vllm_config) is True
+    assert VLLMBackend.detect(llama_config) is False
+
+
+def test_explicit_llamacpp_engine_rejects_vllm_server(transport):
+    # The pre-2.0 bug: vLLM's 404 body for /props parsed as valid props
+    transport.add_vllm_server(HOST, PORT)
+    llm = LLM(db=StubDB(), host=HOST)
+    with pytest.raises(ValueError, match="Failed to connect"):
+        llm.connect_model(model=MODEL, port=PORT, engine="llamacpp")
+
+
+def test_fallback_engine_auto(transport):
+    from PBQA.backends import VLLMBackend
+
+    transport.add_server(HOST, PORT)
+    transport.add_vllm_server(HOST, PORT + 1)
+    llm = LLM(db=StubDB(), host=HOST)
+    llm.connect_model(model=MODEL, port=PORT)
+    llm.add_fallback(model=MODEL, host=HOST, port=PORT + 1, engine="auto")
+
+    assert isinstance(llm._fallbacks[MODEL][0], VLLMBackend)
 
 
 # =============================================================================
