@@ -131,9 +131,11 @@ def test_link_warms_prefix(transport):
     assert payload["max_tokens"] == 1
     assert payload["model"] == SERVED_ID
     assert "structured_outputs" not in payload
-    # Prefix only: system + base examples, no trailing user input
+    # Prefix (system + base examples) plus the filler user turn that chat
+    # templates require to close the conversation
     roles = [m["role"] for m in payload["messages"]]
-    assert roles == ["system", "user", "assistant"]
+    assert roles == ["system", "user", "assistant", "user"]
+    assert payload["messages"][-1]["content"] == "."
 
 
 def test_warm_failure_does_not_break_link(transport):

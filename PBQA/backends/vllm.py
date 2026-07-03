@@ -118,6 +118,13 @@ class VLLMBackend(Backend):
         }
 
     def warm(self, messages: List[dict], pattern: str, model: str) -> None:
+        # Chat templates typically require the conversation to end on a user
+        # turn. The filler content sits past the shared prefix, so the cached
+        # blocks still cover the system prompt and examples.
+        messages = list(messages)
+        if not messages or messages[-1].get("role") != "user":
+            messages.append({"role": "user", "content": "."})
+
         data = {
             "model": self.model_id or model,
             "messages": messages,
