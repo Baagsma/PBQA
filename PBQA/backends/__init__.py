@@ -3,12 +3,15 @@ from PBQA.backends.llamacpp import LlamaCppBackend
 from PBQA.backends.vllm import VLLMBackend
 
 # Engine name -> Backend class, used by LLM.connect_model(engine=...).
-# Order matters for detection: llama.cpp is probed first because its /props
-# endpoint is unique to it, while /v1/models exists on every OpenAI-compatible
-# server.
+# Order matters for detection: vLLM is probed first because its discriminator
+# is exact (owned_by == "vllm" on /v1/models) and a real llama.cpp server can
+# never match it. llama.cpp's /props probe goes last — a router can answer
+# /props on behalf of a different backend than the one serving completions,
+# which misdetects vLLM-served models as llama.cpp (and their schemas then
+# get sent in a field vLLM silently ignores).
 ENGINES = {
-    "llamacpp": LlamaCppBackend,
     "vllm": VLLMBackend,
+    "llamacpp": LlamaCppBackend,
 }
 
 

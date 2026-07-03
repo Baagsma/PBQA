@@ -117,6 +117,29 @@ def test_detect_probes_are_mutually_exclusive(transport):
     assert VLLMBackend.detect(llama_config) is False
 
 
+def test_router_answering_props_still_detects_vllm(transport):
+    """A router can answer /props on behalf of a sibling llama.cpp backend
+    while completions for the served model actually go to vLLM. The exact
+    vLLM discriminator (owned_by on /v1/models) must win over the /props
+    probe, or schemas get sent in a field vLLM silently ignores."""
+    from PBQA.backends import VLLMBackend
+
+    server = transport.add_vllm_server(HOST, PORT)
+    original_handle = server.handle
+
+    def handle(method, path, body):
+        if method == "GET" and path == "/props":
+            return FakeResponse({"total_slots": 4})  # llama.cpp-style answer
+        return original_handle(method, path, body)
+
+    server.handle = handle
+
+    llm = LLM(db=StubDB(), host=HOST)
+    backend = llm.connect_model(model=MODEL, port=PORT)
+
+    assert isinstance(backend, VLLMBackend)
+
+
 def test_explicit_llamacpp_engine_rejects_vllm_server(transport):
     # The pre-2.0 bug: vLLM's 404 body for /props parsed as valid props
     transport.add_vllm_server(HOST, PORT)
