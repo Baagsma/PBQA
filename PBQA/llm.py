@@ -5,10 +5,11 @@ from time import time
 from typing import List
 
 import requests
-import yaml
 from pydantic import BaseModel
 
+from PBQA.backends import ENGINES, Backend, BackendConfig, detect_engine
 from PBQA.db import DB, resolve_path, path_exists
+from PBQA.schema import lock_schema, resolve_refs
 
 log = logging.getLogger("PBQA.llm")
 
@@ -37,10 +38,9 @@ class LLM:
         self.db = db
         self.host = host
 
-        self.cache_slots = {}
-        self.models = {}
+        self.models: dict[str, Backend] = {}
         self.pattern_models = {}
-        self._fallbacks = {}     # model_name -> [fallback_config, ...]
+        self._fallbacks: dict[str, list[Backend]] = {}
         self._health_cache = {}  # (host, port) -> (healthy: bool, expires_at: float)
 
         self.HEALTHY_TTL = 30    # seconds to cache healthy status
@@ -58,8 +58,9 @@ class LLM:
         stop: List[str] = [],
         store_cache: bool = True,
         strict_schema: bool = False,
+        engine: str = "auto",
         **kwargs,
-    ) -> dict[str, str]:
+    ) -> Backend:
         """
         Connect to an LLM server.
 
@@ -77,10 +78,14 @@ class LLM:
           object types in JSON schemas. Required for servers using llguidance-based
           grammar enforcement, which defaults additionalProperties to true per the
           JSON Schema spec.
+        - engine (str): The inference engine serving the model. "auto"
+          (default) probes the server and picks the matching registered
+          backend; pass an explicit name ("llamacpp", "vllm", ...) to skip
+          detection.
         - kwargs: Additional default parameters to pass when querying the LLM server.
 
         Returns:
-        - dict[str, str]: The model components.
+        - Backend: The connected backend.
         """
 
         if not host:
@@ -88,32 +93,38 @@ class LLM:
         if not host:
             raise ValueError("Failed to connect to LLM server. No host provided.")
 
-        props = self.get_props(host, port)
-        if props == {}:
-            raise ValueError(f"Failed to connect to LLM server at {host}:{port}")
+        if engine != "auto" and engine not in ENGINES:
+            raise ValueError(
+                f'Unknown engine "{engine}". Available engines: '
+                f'{["auto"] + list(ENGINES.keys())}'
+            )
 
-        is_rerank = self.is_rerank(host, port)
+        config = BackendConfig(
+            host=host,
+            port=port,
+            strict_schema=strict_schema,
+            store_cache=store_cache,
+            request_defaults={
+                "temperature": temperature,
+                "min_p": min_p,
+                "top_p": top_p,
+                "max_tokens": max_tokens,
+                "stop": stop,
+                **kwargs,
+            },
+        )
 
-        store_cache = store_cache and not is_rerank and self.can_store_cache(host, port)
+        if engine == "auto":
+            engine = detect_engine(config)
 
-        log.info(f'Connected to model "{model}" at {host}:{port}')
+        backend = ENGINES[engine](config)
+        backend.connect()
 
-        self.models[model] = {
-            "host": host,
-            "port": port,
-            "is_rerank": is_rerank,
-            "temperature": temperature,
-            "min_p": min_p,
-            "top_p": top_p,
-            "max_tokens": max_tokens,
-            "stop": stop,
-            "total_slots": props.get("total_slots", 1096),
-            "store_cache": store_cache,
-            "strict_schema": strict_schema,
-            **kwargs,
-        }
+        log.info(f'Connected to model "{model}" at {host}:{port} ({engine})')
 
-        return self.models[model]
+        self.models[model] = backend
+
+        return backend
 
     def add_fallback(
         self,
@@ -121,6 +132,7 @@ class LLM:
         host: str,
         port: int,
         lazy: bool = True,
+        engine: str = None,
         **kwargs,
     ) -> None:
         """
@@ -134,6 +146,9 @@ class LLM:
         - host (str): The host of the fallback server.
         - port (int): The port of the fallback server.
         - lazy (bool): If True, defer connection validation until first use.
+        - engine (str): The inference engine of the fallback server. Defaults
+          to the same engine as the primary backend; "auto" probes the server
+          at registration time (the server must be reachable, even with lazy).
         - kwargs: Override temperature, max_tokens, etc. for this backend.
         """
         if model not in self.models:
@@ -142,163 +157,86 @@ class LLM:
                 f"using connect_model() before adding fallbacks."
             )
 
-        fallback_config = {
-            **self.models[model],  # inherit primary's settings
-            "host": host,
-            "port": port,
-            "lazy": lazy,
-            "connected": not lazy,
-            **kwargs,
-        }
+        primary = self.models[model]
+
+        strict_schema = kwargs.pop("strict_schema", primary.config.strict_schema)
+        store_cache = kwargs.pop("store_cache", primary.config.store_cache)
+
+        config = BackendConfig(
+            host=host,
+            port=port,
+            strict_schema=strict_schema,
+            store_cache=store_cache,
+            request_defaults={**primary.config.request_defaults, **kwargs},
+        )
+
+        if engine is None:
+            backend_cls = type(primary)
+        elif engine == "auto":
+            # Requires the fallback server to be reachable now, even when
+            # lazy — probing is the whole point of "auto"
+            backend_cls = ENGINES[detect_engine(config)]
+        elif engine in ENGINES:
+            backend_cls = ENGINES[engine]
+        else:
+            raise ValueError(
+                f'Unknown engine "{engine}". Available engines: '
+                f'{["auto"] + list(ENGINES.keys())}'
+            )
+
+        fallback = backend_cls(config)
 
         if not lazy:
-            if not self.poke_server(host, port):
-                raise ValueError(
-                    f"Failed to connect to fallback server at {host}:{port}"
-                )
-            props = self.get_props(host, port)
-            if props == {}:
-                raise ValueError(
-                    f"Failed to get properties from fallback server at {host}:{port}"
-                )
-            fallback_config["total_slots"] = props.get("total_slots", 1096)
-            fallback_config["is_rerank"] = self.is_rerank(host, port)
-            fallback_config["store_cache"] = (
-                not fallback_config["is_rerank"]
-                and self.can_store_cache(host, port)
-            )
-            fallback_config["connected"] = True
+            fallback.connect()
 
         if model not in self._fallbacks:
             self._fallbacks[model] = []
-        self._fallbacks[model].append(fallback_config)
+        self._fallbacks[model].append(fallback)
 
         log.info(
             f'Registered fallback for "{model}" at {host}:{port} '
             f"(lazy={lazy}, priority={len(self._fallbacks[model])})"
         )
 
-    @staticmethod
-    def poke_server(host: str, port: int) -> bool:
-        url = f"http://{host}:{port}"
-
-        try:
-            requests.get(url + "/health")
-            return True
-        except requests.exceptions.RequestException as e:
-            log.warn(
-                f"Failed to connect to LLM server at {host}:{port}. Ensure the server is running and the host and port are correct."
-            )
-            return False
-
-    @staticmethod
-    def can_store_cache(host: str, port: int) -> bool:
-        url = f"http://{host}:{port}"
-
-        try:
-            response = requests.post(
-                url + "/slots/0?action=restore",
-                json={"filename": "zppivzcjfxvavwyqxse.bin"},
-            ).json()
-            if "error" in response:
-                if response["error"]["code"] == 400:
-                    log.info(
-                        f"Connection to slot saving endpoint at {host}:{port} successful"
-                    )
-                    return True
-                log.warn(
-                    f"Failed to connect to slot saving endpoint at {host}:{port} with error {response['error']['code']}: {response['error']['message']}"
-                )
-            return False
-        except requests.exceptions.RequestException as e:
-            log.info(
-                f"Failed to connect to slot saving endpoint at {host}:{port}. Disabling cache saving."
-            )
-            return False
-
-    @staticmethod
-    def is_rerank(host: str, port: int) -> bool:
-        url = f"http://{host}:{port}"
-
-        try:
-            response = requests.post(
-                url + "/v1/rerank",
-                json={"query": "test", "documents": ["test"]},
-            ).json()
-            if "error" in response:
-                return False
-            log.info(f"Model at {host}:{port} supports reranking")
-            return True
-        except requests.exceptions.RequestException as e:
-            log.info(f"Model at {host}:{port} does not support reranking")
-
-    @staticmethod
-    def get_props(host: str, port: int) -> dict:
-        url = f"http://{host}:{port}"
-
-        try:
-            response = requests.get(url + "/props")
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            raise ValueError(
-                f"Failed to get properties from LLM server at {host}:{port}. Ensure the server is running and the host and port are correct."
-            )
-
-    def _check_health(self, host: str, port: int) -> bool:
+    def _check_health(self, backend: Backend) -> bool:
         """Check if a backend is healthy, using TTL cache."""
-        key = (host, port)
+        key = (backend.config.host, backend.config.port)
         cached = self._health_cache.get(key)
         if cached:
             healthy, expires_at = cached
             if time() < expires_at:
                 return healthy
 
-        healthy = self.poke_server(host, port)
+        healthy = backend.health()
         ttl = self.HEALTHY_TTL if healthy else self.UNHEALTHY_TTL
         self._health_cache[key] = (healthy, time() + ttl)
         return healthy
 
-    def _mark_healthy(self, host: str, port: int) -> None:
+    def _mark_healthy(self, backend: Backend) -> None:
         """Mark a backend as healthy after a successful request."""
-        self._health_cache[(host, port)] = (True, time() + self.HEALTHY_TTL)
+        key = (backend.config.host, backend.config.port)
+        self._health_cache[key] = (True, time() + self.HEALTHY_TTL)
 
-    def _mark_unhealthy(self, host: str, port: int) -> None:
+    def _mark_unhealthy(self, backend: Backend) -> None:
         """Mark a backend as unhealthy after a failed request."""
-        self._health_cache[(host, port)] = (False, time() + self.UNHEALTHY_TTL)
+        key = (backend.config.host, backend.config.port)
+        self._health_cache[key] = (False, time() + self.UNHEALTHY_TTL)
 
-    def _ensure_connected(self, fallback: dict) -> bool:
-        """Lazily connect a fallback backend. Returns True if connected."""
-        if fallback.get("connected", False):
-            return True
-
-        host, port = fallback["host"], fallback["port"]
-        try:
-            props = self.get_props(host, port)
-            if props == {}:
-                return False
-            fallback["total_slots"] = props.get("total_slots", 1096)
-            fallback["is_rerank"] = self.is_rerank(host, port)
-            fallback["store_cache"] = (
-                not fallback["is_rerank"]
-                and self.can_store_cache(host, port)
-            )
-            fallback["connected"] = True
-            log.info(f"Lazy-connected fallback at {host}:{port}")
-            return True
-        except Exception as e:
-            log.warning(f"Failed to lazy-connect fallback at {host}:{port}: {e}")
-            self._mark_unhealthy(host, port)
-            return False
-
-    def _get_backends(self, model: str) -> list:
+    def _get_backends(self, model: str) -> list[Backend]:
         """Get ordered list of backends: [primary, fallback1, fallback2, ...]."""
         backends = [self.models[model]]
         for fb in self._fallbacks.get(model, []):
-            if fb.get("lazy") and not fb.get("connected"):
-                if self._ensure_connected(fb):
-                    backends.append(fb)
-            else:
-                backends.append(fb)
+            if not fb.connected:
+                try:
+                    fb.connect()
+                    log.info(f"Lazy-connected fallback at {fb.config.address}")
+                except Exception as e:
+                    log.warning(
+                        f"Failed to lazy-connect fallback at {fb.config.address}: {e}"
+                    )
+                    self._mark_unhealthy(fb)
+                    continue
+            backends.append(fb)
         return backends
 
     def _get_response(
@@ -314,7 +252,6 @@ class LLM:
         n_example: int = 0,
         min_d: float = None,
         use_cache: bool = True,
-        cache_slot: int = None,
         schema: BaseModel = None,
         stop: List[str] = [],
         custom_history: List[dict] = None,
@@ -335,7 +272,6 @@ class LLM:
         - n_example (int): The number of examples to load from the database.
         - min_d (float): The minimum distance between the input and the examples.
         - use_cache (bool): Whether to use the cache for the response.
-        - cache_slot (int): The cache slot to use for the response.
         - schema (BaseModel): The schema to use for the response.
         - stop (List[str]): Strings to stop the response generation.
         - kwargs: Additional arguments to pass when querying the database.
@@ -363,22 +299,12 @@ class LLM:
                 f'Model "{model}" not found in models {self.models.keys()}. Make sure to connect the model first using the `llm.connect_model()` method.'
             )
 
-        if self.models[model].get("is_rerank", False):
+        if self.models[model].is_rerank:
             raise ValueError(
                 f'Model "{model}" is a reranking model. Make sure to use the `llm.rerank()` method instead of `llm.ask()`.'
             )
 
-        prev = time()
         log.info(f"Generating response from LLM")
-
-        if cache_slot is None or cache_slot >= self.models[model].get(
-            "total_slots", 1096
-        ):
-            if cache_slot:
-                log.warn(
-                    f"Provided cache slot {cache_slot} exceeds the maximum number of cache slots {self.models[model].get('total_slots', 1096)} or pattern \"{pattern}\" and model \"{model}\". Using the last slot instead."
-                )
-            cache_slot = self._get_cache_slot(pattern, model)
 
         messages = self._format_messages(
             input=input,
@@ -399,6 +325,7 @@ class LLM:
         # If the schema consists of a single str component, pass None instead of the schema
         # Exception: If the string has enum constraints (Literal types), keep the schema
         # Note: Optional types use "anyOf" instead of direct "type", so we use .get()
+        prop_name = None
         schema = schema or metadata["schema"]
         if (
             len(schema["properties"]) == 1
@@ -412,83 +339,52 @@ class LLM:
             schema = None
 
         if schema:
-            schema = _resolve_refs(schema)
+            schema = resolve_refs(schema)
 
-        if schema and self.models[model].get("strict_schema", False):
-            schema = _lock_schema(schema)
-
-        backends = self._get_backends(model)
+        overrides = {**kwargs, "stop": stop}
 
         last_error = None
-        for backend in backends:
-            if not self._check_health(backend["host"], backend["port"]):
+        for backend in self._get_backends(model):
+            if not self._check_health(backend):
                 log.info(
-                    f"Skipping unhealthy backend {backend['host']}:{backend['port']} "
+                    f"Skipping unhealthy backend {backend.config.address} "
                     f"for {pattern}"
                 )
                 continue
 
-            parameters = {**backend, **kwargs}
-
-            data = {
-                "model": model,
-                "id_slot": cache_slot,
-                "cache_prompt": use_cache,
-                "messages": messages,
-                **({"json_schema": schema} if schema else {}),
-                "stop": parameters.get("stop", []) + stop,
-                **parameters,
-            }
-
-            if parameters["store_cache"]:
-                self.load_cache(model, pattern, cache_slot,
-                                host=backend["host"], port=backend["port"])
-
-            log.info(
-                f"Performing query ({pattern}-{model}) at "
-                f"{backend['host']}:{backend['port']} ID slot {cache_slot}"
+            send_schema = (
+                lock_schema(schema)
+                if schema and backend.config.strict_schema
+                else schema
             )
 
             try:
-                then = time()
-                url = (
-                    f"http://{backend['host']}:{backend['port']}"
-                    f"/v1/chat/completions"
+                result = backend.generate(
+                    messages=messages,
+                    schema=send_schema,
+                    pattern=pattern,
+                    model=model,
+                    overrides=overrides,
+                    use_cache=use_cache,
                 )
-                headers = {
-                    "Content-Type": "application/json",
-                    "Authorization": "Bearer no-key",
-                }
-                raw_response = requests.post(
-                    url, headers=headers, data=json.dumps(data)
-                ).json()
-                if "error" in raw_response:
-                    raise ValueError(
-                        f"LLM error:\n{json.dumps(raw_response, indent=4)}"
-                    )
-                content = raw_response["choices"][0]["message"]["content"]
+                content = result["content"]
                 llm_response = json.loads(content) if schema else content
                 log.info(f"Response:\n{json.dumps(llm_response, indent=4)}")
-                response_time = time() - then
 
-                self._mark_healthy(backend["host"], backend["port"])
-
-                if parameters["store_cache"]:
-                    self.save_cache(model, pattern, cache_slot,
-                                    host=backend["host"], port=backend["port"])
+                self._mark_healthy(backend)
 
                 return {
                     "input": input,
                     "response": llm_response if schema else {prop_name: llm_response},
                     "metadata": {
-                        "total_time": response_time,
-                        **raw_response["usage"],
+                        "total_time": result["response_time"],
+                        **result["usage"],
                     },
                 }
             except requests.exceptions.RequestException as e:
-                self._mark_unhealthy(backend["host"], backend["port"])
+                self._mark_unhealthy(backend)
                 log.warning(
-                    f"Backend {backend['host']}:{backend['port']} failed for "
+                    f"Backend {backend.config.address} failed for "
                     f"{pattern}, trying next: {e}"
                 )
                 last_error = e
@@ -496,7 +392,7 @@ class LLM:
 
         raise ValueError(
             f"All backends failed for model '{model}': {last_error}\n\n"
-            f"Ensure at least one llama.cpp server is running."
+            f"Ensure at least one inference server is running."
         )
 
     def _format_messages(
@@ -635,6 +531,7 @@ class LLM:
                 }
             ]
 
+        base_examples = []
         if include_base_examples:
             base_examples = self.db.where(
                 collection_name=pattern,
@@ -646,6 +543,7 @@ class LLM:
 
         log.info(f"Base examples: {len(base_examples)}")
 
+        examples = []
         if input:
             query_input = input
             if type(input) == dict:
@@ -698,7 +596,8 @@ class LLM:
 
         log.info(f"History: {len(hist)}/{n_hist if custom_history is None else 'custom'}")
 
-        messages.append(format_role(user_name, input))
+        if input is not None:
+            messages.append(format_role(user_name, input))
 
         if log_input:
             log.info(f"Input:\n{json.dumps(messages[-1], indent=4)}")
@@ -720,18 +619,25 @@ class LLM:
         pattern: str,
         model: str,
         cache_slot: int = None,
-    ) -> int:
+    ) -> None:
         """
-        Link a pattern-model pair to a cache slot.
+        Link a pattern to a model.
+
+        Patterns linked to a model can be queried with `llm.ask()` without
+        specifying the model each time.
 
         Parameters:
-        - pattern (str): The pattern to assign the cache slot to.
-        - model (str): The model to assign the cache slot to.
-        - cache_slot (int): The cache slot to assign to the pattern and model
-
-        Returns:
-        - int: The cache slot.
+        - pattern (str): The pattern to link.
+        - model (str): The model to link the pattern to.
+        - cache_slot (int): Deprecated and ignored. Cache slots are managed
+          internally by the backend.
         """
+
+        if cache_slot is not None:
+            log.warning(
+                "The cache_slot parameter is deprecated and ignored. Cache "
+                "slots are managed internally by the backend."
+            )
 
         if pattern not in self.db.get_patterns():
             raise ValueError(
@@ -742,82 +648,60 @@ class LLM:
                 f'Model "{model}" not found. Make sure to connect the model first using the `llm.connect_model()` method.'
             )
 
-        total_slots = self.models[model].get("total_slots", 1096)
-
-        if cache_slot is None or cache_slot >= total_slots:
-            if cache_slot is not None:
-                log.warn(
-                    f"Provided cache slot {cache_slot} exceeds the total number of cache slots {total_slots} for pattern-model pair {pattern}-{model}. Using an auto-assigned slot instead."
-                )
-            result_slot = self._get_cache_slot(pattern, model)
-        else:
-            result_slot = cache_slot
-
-        if model not in self.cache_slots:
-            self.cache_slots[model] = {}
-        self.cache_slots[model][pattern] = result_slot
-
-        log.info(
-            f"Assigned pattern-model pair {pattern}-{model} to cache slot {result_slot}"
-        )
-
         self.pattern_models[pattern] = model
 
-        return result_slot
+        log.info(f'Linked pattern "{pattern}" to model "{model}"')
 
-    def _get_cache_slot(self, pattern: str, model: str) -> int:
-        total_slots = self.models[model].get("total_slots", 1096)
+        if self.models[model].warm_on_link:
+            self.warm(pattern, model)
 
-        if model not in self.cache_slots:
-            self.cache_slots[model] = {}
+    def warm(
+        self,
+        pattern: str,
+        model: str = None,
+    ) -> None:
+        """
+        Prefill a pattern's fixed prefix (system prompt + base examples) so
+        subsequent queries hit the backend's prefix cache.
 
-        if pattern not in self.cache_slots[model]:
-            # Find the lowest available slot for this model
-            for slot in range(total_slots):
-                if slot not in self.cache_slots[model].values():
-                    self.cache_slots[model][pattern] = slot
-                    break
-            else:
-                # If no slots are available for this model, use the last slot
-                self.cache_slots[model][pattern] = total_slots - 1
+        Only meaningful for engines whose cache does not survive a server
+        restart (e.g. vLLM's in-VRAM prefix cache); a no-op for llama.cpp,
+        whose slot caches are persisted to disk. Called automatically by
+        `link()` when the backend requests it. Warming failures are logged,
+        never raised.
 
-        return self.cache_slots[model][pattern]
+        Parameters:
+        - pattern (str): The pattern whose prefix to warm.
+        - model (str): The model to warm the prefix on. Defaults to the model
+          linked to the pattern.
+        """
 
-    def load_cache(self, model: str, pattern: str, slot: int,
-                   host: str = None, port: int = None):
-        backend = self.models[model]
-        url = f"http://{host or backend['host']}:{port or backend['port']}"
-
-        try:
-            response = requests.post(
-                url + f"/slots/{slot}?action=restore",
-                json={"filename": f"{pattern}-{model}.bin"},
-            ).json()
-            if "error" in response:
-                if response["error"]["code"] == 400:
-                    log.info(f"Cache for {pattern}-{model} not found")
-                    return
-                log.warn(
-                    f"Failed to load cache for {pattern}-{model} to slot {slot} with error {response['error']['code']}: {response['error']['message']}"
+        if not model:
+            model = self.pattern_models.get(pattern, None)
+            if not model:
+                raise ValueError(
+                    f'No model provided and no model assigned for pattern "{pattern}". Make sure to call `llm.link()` or provide a model when calling `llm.warm()`.'
                 )
-                return
-            log.info(f"Loaded cache for {pattern}-{model} to slot {slot}")
-        except:
-            log.warn(f"Failed to load cache for {pattern}-{model} to slot {slot}")
+        if model not in self.models:
+            raise ValueError(
+                f'Model "{model}" not found. Make sure to connect the model first using the `llm.connect_model()` method.'
+            )
 
-    def save_cache(self, model: str, pattern: str, slot: int,
-                   host: str = None, port: int = None):
         backend = self.models[model]
-        url = f"http://{host or backend['host']}:{port or backend['port']}"
+
+        messages = self._format_messages(pattern=pattern, input=None)
+        if not messages:
+            log.info(
+                f'Nothing to warm for pattern "{pattern}" (no system prompt or base examples)'
+            )
+            return
 
         try:
-            requests.post(
-                url + f"/slots/{slot}?action=save",
-                json={"filename": f"{pattern}-{model}.bin"},
+            backend.warm(messages, pattern, model)
+        except Exception as e:
+            log.warning(
+                f'Failed to warm pattern "{pattern}" on {backend.config.address}: {e}'
             )
-            log.info(f"Saved cache for {pattern}-{model} to slot {slot}")
-        except:
-            log.warn(f"Failed to save cache for {pattern}-{model} to slot {slot}")
 
     def ask(
         self,
@@ -853,7 +737,8 @@ class LLM:
         - n_example (int): The number of examples to load from the database.
         - min_d (float): The minimum distance between the input and the examples.
         - use_cache (bool): Whether to use the cache for the response.
-        - cache_slot (int): The cache slot to use for the response.
+        - cache_slot (int): Deprecated and ignored. Cache slots are managed
+          internally by the backend.
         - schema (BaseModel): The schema to use for the response.
         - stop (List[str]): Strings to stop the response generation.
         - custom_history (List[dict]): Custom conversation history to use instead of database retrieval.
@@ -865,13 +750,19 @@ class LLM:
         - dict: The response from the LLM.
         """
 
+        if cache_slot is not None:
+            log.warning(
+                "The cache_slot parameter is deprecated and ignored. Cache "
+                "slots are managed internally by the backend."
+            )
+
         metadata = self.db.get_metadata(pattern)
 
         if not input or (not isinstance(input, str) and not isinstance(input, dict)):
             raise ValueError(
                 f"Input must be a string or a dictionary, got \"{type(input).__name__}\""
             )
-        
+
         if isinstance(input, dict):
             input_key = metadata.get("input_key", "input")
             if not path_exists(input, input_key):
@@ -891,7 +782,6 @@ class LLM:
             n_example=n_example,
             min_d=min_d,
             use_cache=use_cache,
-            cache_slot=cache_slot,
             schema=schema,
             stop=stop,
             custom_history=custom_history,
@@ -920,7 +810,12 @@ class LLM:
         - dict: The response from the LLM.
         """
 
-        if not self.models[model].get("is_rerank", False):
+        if model not in self.models:
+            raise ValueError(
+                f'Model "{model}" not found. Make sure to connect the model first using the `llm.connect_model()` method.'
+            )
+
+        if not self.models[model].is_rerank:
             raise ValueError(
                 f'Model "{model}" is not a reranking model. Make sure to use the `llm.connect_model()` to connect to a reranking model.'
             )
@@ -928,30 +823,24 @@ class LLM:
         if not all(type(document) == str for document in documents):
             raise ValueError(f"All documents must be strings. Got {documents}")
 
-        backends = self._get_backends(model)
-
-        response = None
+        raw_results = None
         last_error = None
-        for backend in backends:
-            if not self._check_health(backend["host"], backend["port"]):
+        for backend in self._get_backends(model):
+            if not self._check_health(backend):
                 log.info(
-                    f"Skipping unhealthy backend {backend['host']}:{backend['port']} "
+                    f"Skipping unhealthy backend {backend.config.address} "
                     f"for reranking"
                 )
                 continue
 
             try:
-                url = f"http://{backend['host']}:{backend['port']}"
-                response = requests.post(
-                    url + "/v1/rerank",
-                    json={"query": input, "documents": documents},
-                ).json()
-                self._mark_healthy(backend["host"], backend["port"])
+                raw_results = backend.rerank(input, documents)
+                self._mark_healthy(backend)
                 break
             except requests.exceptions.RequestException as e:
-                self._mark_unhealthy(backend["host"], backend["port"])
+                self._mark_unhealthy(backend)
                 log.warning(
-                    f"Rerank backend {backend['host']}:{backend['port']} failed, "
+                    f"Rerank backend {backend.config.address} failed, "
                     f"trying next: {e}"
                 )
                 last_error = e
@@ -962,7 +851,7 @@ class LLM:
             )
 
         results = []
-        for result in response["results"]:
+        for result in raw_results:
             results.append(
                 {
                     "index": result["index"],
@@ -975,71 +864,6 @@ class LLM:
         sorted_results = sorted(results, key=lambda x: x["score"], reverse=True)
 
         return sorted_results[:n]
-
-
-def _resolve_refs(schema: dict) -> dict:
-    """Inline all $ref references in a JSON schema.
-
-    Pydantic generates schemas with $ref pointers to $defs for enums, nested
-    models, etc. Not all grammar engines resolve these correctly, which can
-    cause enum fields to be unconstrained — the LLM then outputs objects
-    instead of valid enum values.
-    """
-    schema = json.loads(json.dumps(schema))  # deep copy
-    defs = schema.get("$defs", {})
-
-    def _resolve(node):
-        if not isinstance(node, dict):
-            return node
-        if "$ref" in node:
-            ref_path = node["$ref"]  # e.g. "#/$defs/Difficulty"
-            if ref_path.startswith("#/$defs/"):
-                def_name = ref_path[len("#/$defs/"):]
-                if def_name in defs:
-                    resolved = json.loads(json.dumps(defs[def_name]))
-                    return _resolve(resolved)
-            return node
-        return {k: _resolve_value(v) for k, v in node.items()}
-
-    def _resolve_value(value):
-        if isinstance(value, dict):
-            return _resolve(value)
-        if isinstance(value, list):
-            return [_resolve_value(item) for item in value]
-        return value
-
-    resolved = _resolve(schema)
-    resolved.pop("$defs", None)
-    return resolved
-
-
-def _lock_schema(schema: dict) -> dict:
-    """Set additionalProperties: false on all object types in a JSON schema.
-
-    This is required for grammar-constrained generation engines (e.g. llguidance)
-    that default additionalProperties to true per the JSON Schema spec, which
-    allows the model to output arbitrary extra keys.
-    """
-    schema = json.loads(json.dumps(schema))  # deep copy
-    defs = schema.get("$defs", {})
-
-    def _lock(node):
-        if not isinstance(node, dict):
-            return
-        if node.get("type") == "object":
-            node.setdefault("additionalProperties", False)
-        for value in node.values():
-            if isinstance(value, dict):
-                _lock(value)
-            elif isinstance(value, list):
-                for item in value:
-                    _lock(item)
-
-    _lock(schema)
-    for defn in defs.values():
-        _lock(defn)
-
-    return schema
 
 
 def sigmoid(x):

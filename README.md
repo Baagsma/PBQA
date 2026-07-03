@@ -190,12 +190,27 @@ This sets `additionalProperties: false` on all object types in the JSON schema b
 
 Benchmarks show a **2-3x speedup** in structured generation throughput compared to the default GBNF grammar engine, with improved reliability on complex nested schemas.
 
+### Engines
+PBQA can talk to different inference engines through the same API. By default the engine is detected automatically when connecting — llama.cpp is recognized by its `/props` endpoint, vLLM by the `owned_by` field on `/v1/models` — so the same client code works regardless of which engine is behind the port:
+
+```py
+llm.connect_model(model="llama", port=8080)                  # auto-detected
+llm.connect_model(model="qwen", port=8000, engine="vllm")    # explicit
+```
+
+The pattern layer, schema handling, and `ask()` semantics are identical across engines; only the server interaction differs:
+
+- **llamacpp** — llama.cpp server. Structured output via the `json_schema` request field; per-pattern KV caches persisted to disk through slot save/restore (see [Cache](#cache)).
+- **vllm** — vLLM OpenAI-compatible server (v0.12+). Structured output via the `structured_outputs` request field; caching is handled entirely by vLLM's automatic prefix caching. On `link()`, PBQA prefills the pattern's fixed prefix (system prompt + base examples) so first queries hit the cache — since vLLM's cache lives in VRAM and does not survive a restart, `llm.warm(pattern)` can be called to re-prefill after a known server restart. The `model` field sent to the server is the served model id discovered at connect time.
+
+Fallback backends (`llm.add_fallback()`) may use a different engine than the primary, e.g. a vLLM primary with a llama.cpp fallback.
+
 ### Cache
 Unless overridden, queries using the same pattern will use the same system prompt and base examples, allowing a large part of the response to be cached. This avoids the need reprocess those parts of the response, speeding up the query. This can be disabled by setting `use_cache=False` when invoking `llm.ask()`.
 
-PBQA allocates a slot/process for each pattern-model pair in the llama.cpp server. Set `-np` to the number of unique combinations of patterns and models you want to enable caching for. Slots are allocated in the order they are requested, and if the number of available slots is exceeded, the last slot is reused for any excess pattern-model pairs.
+With llama.cpp, PBQA persists a separate KV cache per pattern-model pair to disk using the server's slot save/restore mechanism. Start the server with `--slot-save-path <dir>` to enable this; before each query the pattern's cache file (`{pattern}-{model}.bin`) is restored, and it is saved again afterwards. This way interleaved queries across many patterns each keep their own cached prefix — even across server restarts — without needing a parallel slot per pattern. If the server does not expose slot saving, PBQA detects this at connect time and transparently falls back to the server's regular prompt caching.
 
-You can manually assign a cache slot to a specific pattern-model pair using the `link` method. Optionally, a specific cache slot can be provided, up to the number of available processes. The cache slot used for a query can also be overridden by passing the `cache_slot` parameter to the `llm.ask()` method.
+Cache slots are managed internally per backend; the `cache_slot` parameter on `llm.ask()` and `llm.link()` is deprecated and ignored.
 
 ```py
 from PBQA import DB, LLM
@@ -228,7 +243,7 @@ Future features in no particular order with no particular timeline:
  - Combining multi-shot prompting with message history
  - Multimodal support
  - ~~Further speed improvements (possibly [batching](https://github.com/guidance-ai/guidance?tab=readme-ov-file#guidance-acceleration))~~ [llguidance support](#strict-schema-llguidance)
- - Support for more LLM backends
+ - ~~Support for more LLM backends~~ [vLLM backend](#engines)
 
 ## Relevant Literature
  - [Language Models are Few-Shot Learners (Brown et al., 2020)](https://arxiv.org/abs/2005.14165)
