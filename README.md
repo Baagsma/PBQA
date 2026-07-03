@@ -190,6 +190,21 @@ This sets `additionalProperties: false` on all object types in the JSON schema b
 
 Benchmarks show a **2-3x speedup** in structured generation throughput compared to the default GBNF grammar engine, with improved reliability on complex nested schemas.
 
+### Engines
+PBQA can talk to different inference engines through the same API. The engine is chosen per model when connecting:
+
+```py
+llm.connect_model(model="llama", port=8080)                  # llama.cpp (default)
+llm.connect_model(model="qwen", port=8000, engine="vllm")    # vLLM
+```
+
+The pattern layer, schema handling, and `ask()` semantics are identical across engines; only the server interaction differs:
+
+- **llamacpp** — llama.cpp server. Structured output via the `json_schema` request field; per-pattern KV caches persisted to disk through slot save/restore (see [Cache](#cache)).
+- **vllm** — vLLM OpenAI-compatible server (v0.12+). Structured output via the `structured_outputs` request field; caching is handled entirely by vLLM's automatic prefix caching. On `link()`, PBQA prefills the pattern's fixed prefix (system prompt + base examples) so first queries hit the cache — since vLLM's cache lives in VRAM and does not survive a restart, `llm.warm(pattern)` can be called to re-prefill after a known server restart. The `model` field sent to the server is the served model id discovered at connect time.
+
+Fallback backends (`llm.add_fallback()`) may use a different engine than the primary, e.g. a vLLM primary with a llama.cpp fallback.
+
 ### Cache
 Unless overridden, queries using the same pattern will use the same system prompt and base examples, allowing a large part of the response to be cached. This avoids the need reprocess those parts of the response, speeding up the query. This can be disabled by setting `use_cache=False` when invoking `llm.ask()`.
 
@@ -228,7 +243,7 @@ Future features in no particular order with no particular timeline:
  - Combining multi-shot prompting with message history
  - Multimodal support
  - ~~Further speed improvements (possibly [batching](https://github.com/guidance-ai/guidance?tab=readme-ov-file#guidance-acceleration))~~ [llguidance support](#strict-schema-llguidance)
- - Support for more LLM backends
+ - ~~Support for more LLM backends~~ [vLLM backend](#engines)
 
 ## Relevant Literature
  - [Language Models are Few-Shot Learners (Brown et al., 2020)](https://arxiv.org/abs/2005.14165)
