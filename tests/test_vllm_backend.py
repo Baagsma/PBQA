@@ -118,6 +118,37 @@ def test_openai_style_error_raises(transport):
         llm.ask(input="hi", pattern="weather", model=MODEL)
 
 
+def test_model_swap_rediscovers_served_id(transport):
+    # A different model deployed on the same port after connect: the backend
+    # should rediscover the served id and retry instead of failing
+    llm, server = make_vllm_llm(transport)
+    server.strict_model = True
+    server.model_id = "qwen3.6-35b-a3b-nvfp4"  # server swapped after connect
+
+    result = llm.ask(input="how hot?", pattern="weather", model=MODEL)
+
+    assert result["response"] == {"temperature": 20.0, "condition": "sunny"}
+    assert llm.models[MODEL].model_id == "qwen3.6-35b-a3b-nvfp4"
+    chat_calls = server.calls_to("/v1/chat/completions")
+    assert len(chat_calls) == 2  # stale-id attempt + retry
+    assert chat_calls[-1][2]["model"] == "qwen3.6-35b-a3b-nvfp4"
+
+
+def test_unknown_model_error_without_swap_still_raises(transport):
+    # Same 404 shape, but /v1/models still reports the id we already have —
+    # no retry loop, the error propagates
+    llm, server = make_vllm_llm(transport)
+    server.error_payload = {
+        "object": "error",
+        "message": f"The model `{SERVED_ID}` does not exist.",
+        "type": "NotFoundError",
+        "code": 404,
+    }
+
+    with pytest.raises(ValueError, match="LLM error"):
+        llm.ask(input="hi", pattern="weather", model=MODEL)
+
+
 # =============================================================================
 # Warm on link
 # =============================================================================

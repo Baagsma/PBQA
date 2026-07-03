@@ -108,9 +108,10 @@ class FakeServer:
 class FakeVLLMServer:
     """Mimics a vLLM OpenAI-compatible server, recording every call."""
 
-    def __init__(self, model_id="qwen3.6-27b-nvfp4"):
+    def __init__(self, model_id="qwen3.6-27b-nvfp4", strict_model=False):
         self.calls = []  # (method, path_with_query, body)
         self.model_id = model_id
+        self.strict_model = strict_model  # reject requests for other model ids
         self.chat_content = _json.dumps({"temperature": 20.0, "condition": "sunny"})
         self.chat_error = None  # exception to raise on /v1/chat/completions
         self.error_payload = None  # OpenAI-style error object to return instead
@@ -138,6 +139,17 @@ class FakeVLLMServer:
                 raise self.chat_error
             if self.error_payload:
                 return FakeResponse(self.error_payload)
+            if self.strict_model and body.get("model") != self.model_id:
+                # Real vLLM's 404 payload for an unknown model id
+                return FakeResponse(
+                    {
+                        "object": "error",
+                        "message": f"The model `{body.get('model')}` does not exist.",
+                        "type": "NotFoundError",
+                        "code": 404,
+                    },
+                    status_code=404,
+                )
             return FakeResponse(
                 {
                     "choices": [{"message": {"content": self.chat_content}}],

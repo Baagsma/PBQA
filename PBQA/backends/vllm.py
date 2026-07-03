@@ -59,6 +59,24 @@ class VLLMBackend(Backend):
                 f"vLLM server at {self.config.address} is unhealthy (status {response.status_code})"
             )
 
+        self._discover_model_id()
+
+        if self.config.store_cache:
+            log.info(
+                f"vLLM at {self.config.address} manages caching automatically "
+                f"(prefix caching); no client-side cache persistence."
+            )
+        self.store_cache = False
+        self.is_rerank = False
+        self.connected = True
+
+    def _discover_model_id(self) -> None:
+        """Read the served model id from /v1/models.
+
+        Called on connect and again when the server reports an unknown model —
+        which happens when a different model was deployed on the same port
+        after this backend connected.
+        """
         try:
             models = requests.get(self.config.base_url + "/v1/models").json()
         except requests.exceptions.RequestException:
@@ -71,15 +89,6 @@ class VLLMBackend(Backend):
             log.info(
                 f"vLLM server at {self.config.address} serves model {self.model_id}"
             )
-
-        if self.config.store_cache:
-            log.info(
-                f"vLLM at {self.config.address} manages caching automatically "
-                f"(prefix caching); no client-side cache persistence."
-            )
-        self.store_cache = False
-        self.is_rerank = False
-        self.connected = True
 
     def health(self) -> bool:
         try:
@@ -105,26 +114,23 @@ class VLLMBackend(Backend):
                 "use_cache=False is ignored on vLLM; prefix caching is automatic"
             )
 
-        data = {
-            "model": self.model_id or model,
-            "messages": messages,
-            **({"structured_outputs": {"json": schema}} if schema else {}),
-            **self._merge_request(overrides),
-        }
-
         log.info(
             f"Performing query ({pattern}-{model}) at {self.config.address}"
         )
 
         then = time()
-        response = requests.post(
-            self.config.base_url + "/v1/chat/completions",
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": "Bearer no-key",
-            },
-            data=json.dumps(data),
-        ).json()
+        response = self._chat_completion(messages, schema, model, overrides)
+        if self._is_unknown_model_error(response):
+            # A different model was deployed on this port since we connected;
+            # rediscover the served id and retry once
+            stale = self.model_id
+            self._discover_model_id()
+            if self.model_id != stale:
+                log.warning(
+                    f"Served model at {self.config.address} changed "
+                    f"({stale} -> {self.model_id}); retrying"
+                )
+                response = self._chat_completion(messages, schema, model, overrides)
         if "error" in response or response.get("object") == "error":
             raise ValueError(f"LLM error:\n{json.dumps(response, indent=4)}")
 
@@ -133,6 +139,36 @@ class VLLMBackend(Backend):
             "usage": response["usage"],
             "response_time": time() - then,
         }
+
+    def _chat_completion(
+        self,
+        messages: List[dict],
+        schema: dict | None,
+        model: str,
+        overrides: dict,
+    ) -> dict:
+        data = {
+            "model": self.model_id or model,
+            "messages": messages,
+            **({"structured_outputs": {"json": schema}} if schema else {}),
+            **self._merge_request(overrides),
+        }
+        return requests.post(
+            self.config.base_url + "/v1/chat/completions",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer no-key",
+            },
+            data=json.dumps(data),
+        ).json()
+
+    @staticmethod
+    def _is_unknown_model_error(response: dict) -> bool:
+        if not ("error" in response or response.get("object") == "error"):
+            return False
+        error = response.get("error", response)
+        message = error.get("message", "") if isinstance(error, dict) else ""
+        return "does not exist" in message or error.get("type") == "NotFoundError"
 
     def warm(self, messages: List[dict], pattern: str, model: str) -> None:
         # Chat templates typically require the conversation to end on a user
