@@ -138,6 +138,7 @@ class VLLMBackend(Backend):
             "content": response["choices"][0]["message"]["content"],
             "usage": response["usage"],
             "response_time": time() - then,
+            "finish_reason": response["choices"][0].get("finish_reason"),
         }
 
     def _chat_completion(

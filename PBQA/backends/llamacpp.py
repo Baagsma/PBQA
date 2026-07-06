@@ -108,7 +108,8 @@ class LlamaCppBackend(Backend):
         if "error" in response:
             raise ValueError(f"LLM error:\n{json.dumps(response, indent=4)}")
 
-        content = response["choices"][0]["message"]["content"]
+        choice = response["choices"][0]
+        content = choice["message"]["content"]
         response_time = time() - then
 
         if self.store_cache:
@@ -118,6 +119,7 @@ class LlamaCppBackend(Backend):
             "content": content,
             "usage": response["usage"],
             "response_time": response_time,
+            "finish_reason": choice.get("finish_reason"),
         }
 
     def rerank(self, query: str, documents: List[str]) -> List[dict]:

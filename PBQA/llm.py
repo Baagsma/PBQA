@@ -368,7 +368,39 @@ class LLM:
                     use_cache=use_cache,
                 )
                 content = result["content"]
-                llm_response = json.loads(content) if schema else content
+                try:
+                    llm_response = json.loads(content) if schema else content
+                except json.JSONDecodeError as decode_err:
+                    # Grammar-constrained output can still arrive malformed —
+                    # typically a generation cut at max_tokens mid-escape
+                    # (finish_reason=length ⇒ runaway). Log the evidence,
+                    # retry once uncached, then fail loudly with the tail.
+                    log.warning(
+                        f"Malformed JSON from {backend.config.address} for "
+                        f"{pattern}: {decode_err}. "
+                        f"finish_reason={result.get('finish_reason')}, "
+                        f"completion_tokens={result.get('usage', {}).get('completion_tokens')}, "
+                        f"len={len(content)}, tail={content[-200:]!r}. "
+                        f"Retrying once without cache."
+                    )
+                    result = backend.generate(
+                        messages=messages,
+                        schema=send_schema,
+                        pattern=pattern,
+                        model=model,
+                        overrides=overrides,
+                        use_cache=False,
+                    )
+                    content = result["content"]
+                    try:
+                        llm_response = json.loads(content)
+                    except json.JSONDecodeError as retry_err:
+                        raise ValueError(
+                            f"Model returned malformed JSON for pattern "
+                            f"'{pattern}' after retry: {retry_err}. "
+                            f"finish_reason={result.get('finish_reason')}, "
+                            f"tail: {content[-300:]!r}"
+                        ) from retry_err
                 log.info(f"Response:\n{json.dumps(llm_response, indent=4)}")
 
                 self._mark_healthy(backend)
