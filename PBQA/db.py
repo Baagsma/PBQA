@@ -807,13 +807,15 @@ class DB:
 
         query_filter = self.filter_to_qdrant_filter(kwargs, collection_name)
 
-        docs = self.client.search(
+        # query_points replaces the search API removed in qdrant-client 1.16;
+        # it exists since 1.10 and returns the same ScoredPoint objects.
+        docs = self.client.query_points(
             collection_name=collection_name,
             query_filter=query_filter,
             limit=n,
-            query_vector=self.encoder.encode(input),
+            query=self.encoder.encode(input),
             score_threshold=min_d,
-        )
+        ).points
 
         has_schema = "schema" in self.get_metadata(collection_name=collection_name)
         return self._format_docs(docs, has_schema)
