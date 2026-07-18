@@ -381,14 +381,27 @@ class LLM:
                         f"finish_reason={result.get('finish_reason')}, "
                         f"completion_tokens={result.get('usage', {}).get('completion_tokens')}, "
                         f"len={len(content)}, tail={content[-200:]!r}. "
-                        f"Retrying once without cache."
+                        f"Retrying once without cache, with sampling jitter."
                     )
+                    # A malformed grammar-constrained response is almost always
+                    # a degenerate repetition loop run to max_tokens (a greedy
+                    # attractor — e.g. endless \u0000 escapes inside a legal
+                    # JSON string). Retrying with identical params at temp 0
+                    # replays the exact same loop; jittered sampling plus a
+                    # repetition penalty breaks the attractor. Engines ignore
+                    # penalty keys they don't know.
+                    jittered = {
+                        **overrides,
+                        "temperature": max(0.4, float(overrides.get("temperature") or 0)),
+                        "repetition_penalty": 1.15,  # vLLM
+                        "repeat_penalty": 1.15,  # llama.cpp
+                    }
                     result = backend.generate(
                         messages=messages,
                         schema=send_schema,
                         pattern=pattern,
                         model=model,
-                        overrides=overrides,
+                        overrides=jittered,
                         use_cache=False,
                     )
                     content = result["content"]
