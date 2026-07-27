@@ -14,7 +14,7 @@ from typing import List
 
 import requests
 
-from PBQA.backends.base import Backend, BackendConfig
+from PBQA.backends.base import Backend, BackendConfig, EngineDriftError
 
 log = logging.getLogger("PBQA.backends.llamacpp")
 
@@ -105,7 +105,21 @@ class LlamaCppBackend(Backend):
             },
             data=json.dumps(data),
         ).json()
-        if "error" in response:
+        if "error" in response or response.get("object") == "error":
+            # llama.cpp ignores the request's model name entirely - a server
+            # that REJECTS it as unknown is not llama.cpp (vLLM's 404, in
+            # either its nested {"error": {...}} or flat {"object": "error"}
+            # shape). The engine behind this address has changed; retrying
+            # in llama.cpp dialect can never succeed.
+            err = response.get("error", response)
+            message = err.get("message", "") if isinstance(err, dict) else str(err)
+            err_type = err.get("type", "") if isinstance(err, dict) else ""
+            if "does not exist" in message or err_type == "NotFoundError":
+                raise EngineDriftError(
+                    f"Server at {self.config.address} rejected the model name "
+                    f"({message!r}) - llama.cpp never does this. The server "
+                    f"was likely replaced by a different engine since connect."
+                )
             raise ValueError(f"LLM error:\n{json.dumps(response, indent=4)}")
 
         choice = response["choices"][0]

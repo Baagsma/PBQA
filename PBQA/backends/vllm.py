@@ -13,7 +13,7 @@ the older guided_json field was removed in v0.12.0).
 
 import json
 import logging
-from time import time
+from time import sleep, time
 from typing import List
 
 import requests
@@ -23,6 +23,12 @@ from PBQA.backends.base import Backend, BackendConfig
 log = logging.getLogger("PBQA.backends.vllm")
 
 DETECT_TIMEOUT = 5
+
+# vLLM binds HTTP before the engine finishes loading; /v1/models answers 200
+# with an empty list until the model is registered (minutes for large models).
+# connect() waits this long for a model to appear before failing loud.
+MODEL_LOAD_TIMEOUT = 300
+MODEL_LOAD_POLL = 2.0
 
 
 class VLLMBackend(Backend):
@@ -60,6 +66,28 @@ class VLLMBackend(Backend):
             )
 
         self._discover_model_id()
+
+        # The server being up is not the model being ready: during startup
+        # /v1/models is an empty list. Reporting "connected" with no model id
+        # would make every request fall back to the alias name, which vLLM
+        # rejects - so wait for registration, loudly, and fail loudly.
+        if self.model_id is None:
+            deadline = time() + MODEL_LOAD_TIMEOUT
+            polls = 0
+            while self.model_id is None and time() < deadline:
+                if polls % 15 == 0:
+                    log.info(
+                        f"vLLM server at {self.config.address} is up but no "
+                        f"model is registered yet (still loading?); waiting"
+                    )
+                polls += 1
+                sleep(MODEL_LOAD_POLL)
+                self._discover_model_id()
+            if self.model_id is None:
+                raise ValueError(
+                    f"vLLM server at {self.config.address} did not register "
+                    f"a model within {MODEL_LOAD_TIMEOUT}s"
+                )
 
         if self.config.store_cache:
             log.info(
@@ -117,6 +145,19 @@ class VLLMBackend(Backend):
         log.info(
             f"Performing query ({pattern}-{model}) at {self.config.address}"
         )
+
+        # Never send the alias: vLLM only accepts its served id. A missing id
+        # here means the server had no model registered when we last looked -
+        # try once more, then refuse with the reason instead of a bare 404.
+        if self.model_id is None:
+            self._discover_model_id()
+            if self.model_id is None:
+                raise ValueError(
+                    f"vLLM server at {self.config.address} has no model "
+                    f"registered (still loading?); request for pattern "
+                    f"'{pattern}' not sent - the alias '{model}' would "
+                    f"never match a served model."
+                )
 
         then = time()
         response = self._chat_completion(messages, schema, model, overrides)

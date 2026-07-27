@@ -7,7 +7,13 @@ from typing import List
 import requests
 from pydantic import BaseModel
 
-from PBQA.backends import ENGINES, Backend, BackendConfig, detect_engine
+from PBQA.backends import (
+    ENGINES,
+    Backend,
+    BackendConfig,
+    EngineDriftError,
+    detect_engine,
+)
 from PBQA.db import DB, resolve_path, path_exists
 from PBQA.schema import lock_schema, resolve_refs
 
@@ -352,80 +358,38 @@ class LLM:
                 )
                 continue
 
-            send_schema = (
-                lock_schema(schema)
-                if schema and backend.config.strict_schema
-                else schema
-            )
-
             try:
-                result = backend.generate(
-                    messages=messages,
-                    schema=send_schema,
-                    pattern=pattern,
-                    model=model,
-                    overrides=overrides,
-                    use_cache=use_cache,
+                return self._attempt_backend(
+                    backend, input, pattern, model, messages, schema,
+                    prop_name, overrides, use_cache,
                 )
-                content = result["content"]
+            except EngineDriftError as e:
+                # The server behind this address now runs a different engine
+                # (a swap behind a proxy/router). Retrying in the old dialect
+                # can never succeed - redetect, rebuild the backend in place,
+                # and retry once on the rebuilt one.
+                log.warning(
+                    f"Engine drift at {backend.config.address} for {pattern}: "
+                    f"{e} Redetecting engine and rebuilding backend."
+                )
+                replacement = self._rebuild_backend(model, backend)
+                if replacement is None:
+                    self._mark_unhealthy(backend)
+                    last_error = e
+                    continue
                 try:
-                    llm_response = json.loads(content) if schema else content
-                except json.JSONDecodeError as decode_err:
-                    # Grammar-constrained output can still arrive malformed —
-                    # typically a generation cut at max_tokens mid-escape
-                    # (finish_reason=length ⇒ runaway). Log the evidence,
-                    # retry once uncached, then fail loudly with the tail.
+                    return self._attempt_backend(
+                        replacement, input, pattern, model, messages, schema,
+                        prop_name, overrides, use_cache,
+                    )
+                except (requests.exceptions.RequestException, ValueError) as retry_err:
+                    self._mark_unhealthy(replacement)
                     log.warning(
-                        f"Malformed JSON from {backend.config.address} for "
-                        f"{pattern}: {decode_err}. "
-                        f"finish_reason={result.get('finish_reason')}, "
-                        f"completion_tokens={result.get('usage', {}).get('completion_tokens')}, "
-                        f"len={len(content)}, tail={content[-200:]!r}. "
-                        f"Retrying once without cache, with sampling jitter."
+                        f"Rebuilt backend at {replacement.config.address} "
+                        f"failed for {pattern}, trying next: {retry_err}"
                     )
-                    # A malformed grammar-constrained response is almost always
-                    # a degenerate repetition loop run to max_tokens (a greedy
-                    # attractor — e.g. endless \u0000 escapes inside a legal
-                    # JSON string). Retrying with identical params at temp 0
-                    # replays the exact same loop; jittered sampling plus a
-                    # repetition penalty breaks the attractor. Engines ignore
-                    # penalty keys they don't know.
-                    jittered = {
-                        **overrides,
-                        "temperature": max(0.4, float(overrides.get("temperature") or 0)),
-                        "repetition_penalty": 1.15,  # vLLM
-                        "repeat_penalty": 1.15,  # llama.cpp
-                    }
-                    result = backend.generate(
-                        messages=messages,
-                        schema=send_schema,
-                        pattern=pattern,
-                        model=model,
-                        overrides=jittered,
-                        use_cache=False,
-                    )
-                    content = result["content"]
-                    try:
-                        llm_response = json.loads(content)
-                    except json.JSONDecodeError as retry_err:
-                        raise ValueError(
-                            f"Model returned malformed JSON for pattern "
-                            f"'{pattern}' after retry: {retry_err}. "
-                            f"finish_reason={result.get('finish_reason')}, "
-                            f"tail: {content[-300:]!r}"
-                        ) from retry_err
-                log.info(f"Response:\n{json.dumps(llm_response, indent=4)}")
-
-                self._mark_healthy(backend)
-
-                return {
-                    "input": input,
-                    "response": llm_response if schema else {prop_name: llm_response},
-                    "metadata": {
-                        "total_time": result["response_time"],
-                        **result["usage"],
-                    },
-                }
+                    last_error = retry_err
+                    continue
             except requests.exceptions.RequestException as e:
                 self._mark_unhealthy(backend)
                 log.warning(
@@ -439,6 +403,131 @@ class LLM:
             f"All backends failed for model '{model}': {last_error}\n\n"
             f"Ensure at least one inference server is running."
         )
+
+    def _attempt_backend(
+        self,
+        backend: Backend,
+        input: str | dict,
+        pattern: str,
+        model: str,
+        messages: List[dict],
+        schema: dict | None,
+        prop_name: str | None,
+        overrides: dict,
+        use_cache: bool,
+    ) -> dict:
+        """Run one generation attempt on a single backend and shape the result."""
+        send_schema = (
+            lock_schema(schema)
+            if schema and backend.config.strict_schema
+            else schema
+        )
+
+        result = backend.generate(
+            messages=messages,
+            schema=send_schema,
+            pattern=pattern,
+            model=model,
+            overrides=overrides,
+            use_cache=use_cache,
+        )
+        content = result["content"]
+        try:
+            llm_response = json.loads(content) if schema else content
+        except json.JSONDecodeError as decode_err:
+            # Grammar-constrained output can still arrive malformed —
+            # typically a generation cut at max_tokens mid-escape
+            # (finish_reason=length ⇒ runaway). Log the evidence,
+            # retry once uncached, then fail loudly with the tail.
+            log.warning(
+                f"Malformed JSON from {backend.config.address} for "
+                f"{pattern}: {decode_err}. "
+                f"finish_reason={result.get('finish_reason')}, "
+                f"completion_tokens={result.get('usage', {}).get('completion_tokens')}, "
+                f"len={len(content)}, tail={content[-200:]!r}. "
+                f"Retrying once without cache, with sampling jitter."
+            )
+            # A malformed grammar-constrained response is almost always a
+            # degenerate repetition loop run to max_tokens (a greedy
+            # attractor — e.g. endless null escapes inside a legal JSON
+            # string). Retrying with identical params at temp 0 replays the
+            # exact same loop; jittered sampling plus a repetition penalty
+            # breaks the attractor. Engines ignore penalty keys they don't
+            # know.
+            jittered = {
+                **overrides,
+                "temperature": max(0.4, float(overrides.get("temperature") or 0)),
+                "repetition_penalty": 1.15,  # vLLM
+                "repeat_penalty": 1.15,  # llama.cpp
+            }
+            result = backend.generate(
+                messages=messages,
+                schema=send_schema,
+                pattern=pattern,
+                model=model,
+                overrides=jittered,
+                use_cache=False,
+            )
+            content = result["content"]
+            try:
+                llm_response = json.loads(content)
+            except json.JSONDecodeError as retry_err:
+                raise ValueError(
+                    f"Model returned malformed JSON for pattern "
+                    f"'{pattern}' after retry: {retry_err}. "
+                    f"finish_reason={result.get('finish_reason')}, "
+                    f"tail: {content[-300:]!r}"
+                ) from retry_err
+        log.info(f"Response:\n{json.dumps(llm_response, indent=4)}")
+
+        self._mark_healthy(backend)
+
+        return {
+            "input": input,
+            "response": llm_response if schema else {prop_name: llm_response},
+            "metadata": {
+                "total_time": result["response_time"],
+                **result["usage"],
+            },
+        }
+
+    def _rebuild_backend(self, model: str, stale: Backend) -> Backend | None:
+        """Redetect the engine at a drifted backend's address and replace it.
+
+        Returns the connected replacement, or None if detection/connection
+        failed (e.g. the new server is still loading its model - the next
+        request will drift again and retry the rebuild).
+        """
+        config = stale.config
+        try:
+            engine = detect_engine(config)
+        except ValueError as e:
+            log.warning(f"Engine redetection at {config.address} failed: {e}")
+            return None
+
+        replacement = ENGINES[engine](config)
+        try:
+            replacement.connect()
+        except Exception as e:
+            log.warning(
+                f"Rebuilt {engine} backend at {config.address} failed to "
+                f"connect: {e}"
+            )
+            return None
+
+        if self.models.get(model) is stale:
+            self.models[model] = replacement
+        else:
+            fallbacks = self._fallbacks.get(model, [])
+            for i, fb in enumerate(fallbacks):
+                if fb is stale:
+                    fallbacks[i] = replacement
+
+        log.warning(
+            f"Backend for '{model}' at {config.address} rebuilt as {engine} "
+            f"after engine drift"
+        )
+        return replacement
 
     def _format_messages(
         self,

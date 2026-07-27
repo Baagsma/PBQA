@@ -15,6 +15,19 @@ from typing import List
 log = logging.getLogger("PBQA.backends")
 
 
+class EngineDriftError(ValueError):
+    """The server behind this backend's address is no longer the engine this
+    backend speaks.
+
+    Raised when a response carries another engine's unmistakable signature —
+    e.g. a llama.cpp-dialect request (alias model name) answered with vLLM's
+    "model does not exist" 404. Happens when a different inference server is
+    deployed on the same host:port after connect() (an engine swap behind a
+    proxy, a llama.cpp box replaced by vLLM, ...). The caller should redetect
+    the engine and rebuild the backend rather than retry as-is.
+    """
+
+
 @dataclass
 class BackendConfig:
     """Configuration for a single inference server endpoint.

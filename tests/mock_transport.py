@@ -108,10 +108,19 @@ class FakeServer:
 class FakeVLLMServer:
     """Mimics a vLLM OpenAI-compatible server, recording every call."""
 
-    def __init__(self, model_id="qwen3.6-27b-nvfp4", strict_model=False):
+    def __init__(
+        self,
+        model_id="qwen3.6-27b-nvfp4",
+        strict_model=False,
+        model_available_after=0,
+    ):
         self.calls = []  # (method, path_with_query, body)
         self.model_id = model_id
         self.strict_model = strict_model  # reject requests for other model ids
+        # Number of /v1/models requests answered with an EMPTY list before the
+        # model appears — mimics vLLM's startup window (HTTP up, engine loading)
+        self.model_available_after = model_available_after
+        self._models_requests = 0
         self.chat_content = _json.dumps({"temperature": 20.0, "condition": "sunny"})
         self.chat_error = None  # exception to raise on /v1/chat/completions
         self.error_payload = None  # OpenAI-style error object to return instead
@@ -125,7 +134,13 @@ class FakeVLLMServer:
         if method == "GET" and path == "/props":
             # FastAPI 404 with a JSON body, as real vLLM answers it
             return FakeResponse({"detail": "Not Found"}, status_code=404)
+        if path.startswith("/slots/"):
+            # llama.cpp dialect hitting vLLM: FastAPI 404, as observed live
+            return FakeResponse({"detail": "Not Found"}, status_code=404)
         if method == "GET" and path == "/v1/models":
+            self._models_requests += 1
+            if self._models_requests <= self.model_available_after:
+                return FakeResponse({"object": "list", "data": []})
             return FakeResponse(
                 {
                     "object": "list",
