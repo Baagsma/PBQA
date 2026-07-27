@@ -1,4 +1,4 @@
-from PBQA.backends.base import Backend, BackendConfig
+from PBQA.backends.base import Backend, BackendConfig, EngineDriftError
 from PBQA.backends.llamacpp import LlamaCppBackend
 from PBQA.backends.vllm import VLLMBackend
 
@@ -34,6 +34,7 @@ def detect_engine(config: BackendConfig) -> str:
 __all__ = [
     "Backend",
     "BackendConfig",
+    "EngineDriftError",
     "LlamaCppBackend",
     "VLLMBackend",
     "ENGINES",
