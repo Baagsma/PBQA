@@ -2,7 +2,7 @@ PyYAML
 requests
 accelerate
 transformers
-qdrant-client
+qdrant-client>=1.10
 sentence-transformers
 python-dateutil
 python-dotenv

@@ -24,6 +24,8 @@ pip install PBQA
 
 Additionally, PBQA requires a running instance of llama.cpp to interact with LLMs. For instructions on installation, see the [llama.cpp repository](https://github.com/ggerganov/llama.cpp/tree/master?tab=readme-ov-file#usage).
 
+PBQA requires `qdrant-client>=1.10` and works with every release since, on either side of the 1.16 boundary that removed the old `search` API — retrieval goes through `query_points`, which has been available since 1.10. Embeddings are encoded locally with [sentence-transformers](https://github.com/UKPLab/sentence-transformers); pass `DB(device="cpu")` (or any torch device) if the default device is already occupied, for instance by an inference server holding the GPU.
+
 ## Usage
 ### llama.cpp
 For instructions on hosting a model with llama.cpp, see the [following page](https://github.com/ggerganov/llama.cpp/blob/master/examples/server/README.md#quick-start). Optionally, [caching](#cache) can be enabled to speed up generation.

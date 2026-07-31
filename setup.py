@@ -19,7 +19,7 @@ setup(
         "requests",
         "accelerate",
         "transformers",
-        "qdrant-client",
+        "qdrant-client>=1.10",  # query_points; the search API it replaced is gone in 1.16+
         "sentence-transformers",
         "python-dotenv",
     ],

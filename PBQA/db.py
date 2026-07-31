@@ -122,6 +122,7 @@ class DB:
         host: str = None,
         port: int = None,
         encoder: str = DEFAULT_ENCODER,
+        device: str = None,
         metadata_collection_name: str = DEFAULT_METADATA_COLLECTION_NAME,
         reset: bool = False,
         auto_update: bool = False,
@@ -136,6 +137,7 @@ class DB:
         - host (str): The host of the Qdrant server.
         - port (int): The port of the Qdrant server.
         - encoder (str): The name of the SentenceTransformer model to use for encoding documents.
+        - device (str, optional): The torch device to load the encoder onto ("cpu", "cuda:1", ...). Defaults to None, letting SentenceTransformer pick automatically. Set this when the default device is occupied — an inference server holding all of cuda:0, for instance.
         - metadata_collection_name (str, optional): The name of the collection to store metadata in. Defaults to "metadata".
         - reset (bool, optional): Whether to reset the database. Defaults to False. If True, the collections specified in the metadata collection will be deleted.
         - auto_update (bool, optional): Whether to automatically update the database when the patterns change. Defaults to False. Warning: Any changes to the examples, model, or system prompt will completely overwrite the collection.
@@ -160,7 +162,7 @@ class DB:
 
         self.host = host
         self.port = port
-        self.encoder = SentenceTransformer(encoder)
+        self.encoder = SentenceTransformer(encoder, device=device)
         self.metadata_collection_name = metadata_collection_name
         self.auto_update = auto_update
 
@@ -178,6 +180,16 @@ class DB:
                     size=1, distance=models.Distance.COSINE
                 ),
             )
+
+    def _embedding_dimension(self) -> int:
+        """The encoder's output dimension, across sentence-transformers versions.
+
+        `get_sentence_embedding_dimension` was renamed to `get_embedding_dimension`
+        in sentence-transformers 5.6; the old name still works but warns.
+        """
+        if hasattr(self.encoder, "get_embedding_dimension"):
+            return self.encoder.get_embedding_dimension()
+        return self.encoder.get_sentence_embedding_dimension()
 
     def load_pattern(
         self,
@@ -362,7 +374,7 @@ class DB:
         )
 
         config = models.VectorParams(
-            size=self.encoder.get_sentence_embedding_dimension(),
+            size=self._embedding_dimension(),
             distance=models.Distance[distance.upper()],
         )
 
