@@ -11,6 +11,22 @@ MODEL = "testmodel"
 HOST = "fakehost"
 PORT = 8080
 
+# Sampling parameters a speculative-decoding server refuses, and the refusal
+# it answers with — copied from a live vLLM deployment (2026-07-31). The
+# message is static: it names both parameters whichever one was sent.
+SPEC_DECODE_UNSUPPORTED = ("min_p", "logit_bias")
+SPEC_DECODE_REFUSAL = {
+    "error": {
+        "message": (
+            "The min_p and logit_bias sampling parameters are not yet "
+            "supported with speculative decoding."
+        ),
+        "type": "BadRequestError",
+        "param": None,
+        "code": 400,
+    }
+}
+
 
 # =============================================================================
 # Schemas
@@ -50,17 +66,35 @@ class FakeResponse:
         return self._payload
 
 
+def spec_decode_refusal(body):
+    """The 400 a speculative-decoding server answers with, or None.
+
+    Greedy requests pass: the live server accepts min_p at temperature 0 and
+    rejects the same request at temperature 0.8.
+    """
+    if body.get("temperature", 1.0) <= 0:
+        return None
+    if not any(param in body for param in SPEC_DECODE_UNSUPPORTED):
+        return None
+    return FakeResponse(SPEC_DECODE_REFUSAL, status_code=400)
+
+
 class FakeServer:
     """Mimics a llama.cpp server's HTTP surface, recording every call."""
 
-    def __init__(self, rerank=False, total_slots=1):
+    def __init__(self, rerank=False, total_slots=1, speculative_decoding=False):
         self.calls = []  # (method, path_with_query, body)
         self.rerank = rerank
         self.total_slots = total_slots
+        self.speculative_decoding = speculative_decoding
         self.chat_content = _json.dumps({"temperature": 20.0, "condition": "sunny"})
+        self.chat_contents = []  # consumed in order, then chat_content
         self.chat_error = None  # exception to raise on /v1/chat/completions
         self.usage = {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
         self.rerank_results = []
+
+    def _next_content(self):
+        return self.chat_contents.pop(0) if self.chat_contents else self.chat_content
 
     def handle(self, method, path, body):
         self.calls.append((method, path, body))
@@ -92,9 +126,13 @@ class FakeServer:
         if path == "/v1/chat/completions":
             if self.chat_error:
                 raise self.chat_error
+            if self.speculative_decoding:
+                refusal = spec_decode_refusal(body)
+                if refusal:
+                    return refusal
             return FakeResponse(
                 {
-                    "choices": [{"message": {"content": self.chat_content}}],
+                    "choices": [{"message": {"content": self._next_content()}}],
                     "usage": self.usage,
                 }
             )
@@ -113,6 +151,7 @@ class FakeVLLMServer:
         model_id="qwen3.6-27b-nvfp4",
         strict_model=False,
         model_available_after=0,
+        speculative_decoding=False,
     ):
         self.calls = []  # (method, path_with_query, body)
         self.model_id = model_id
@@ -121,10 +160,16 @@ class FakeVLLMServer:
         # model appears — mimics vLLM's startup window (HTTP up, engine loading)
         self.model_available_after = model_available_after
         self._models_requests = 0
+        # Refuse sampling params vLLM cannot serve alongside spec decoding
+        self.speculative_decoding = speculative_decoding
         self.chat_content = _json.dumps({"temperature": 20.0, "condition": "sunny"})
+        self.chat_contents = []  # consumed in order, then chat_content
         self.chat_error = None  # exception to raise on /v1/chat/completions
         self.error_payload = None  # OpenAI-style error object to return instead
         self.usage = {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+
+    def _next_content(self):
+        return self.chat_contents.pop(0) if self.chat_contents else self.chat_content
 
     def handle(self, method, path, body):
         self.calls.append((method, path, body))
@@ -154,6 +199,10 @@ class FakeVLLMServer:
                 raise self.chat_error
             if self.error_payload:
                 return FakeResponse(self.error_payload)
+            if self.speculative_decoding:
+                refusal = spec_decode_refusal(body)
+                if refusal:
+                    return refusal
             if self.strict_model and body.get("model") != self.model_id:
                 # Real vLLM's 404 payload for an unknown model id
                 return FakeResponse(
@@ -167,7 +216,7 @@ class FakeVLLMServer:
                 )
             return FakeResponse(
                 {
-                    "choices": [{"message": {"content": self.chat_content}}],
+                    "choices": [{"message": {"content": self._next_content()}}],
                     "usage": self.usage,
                 }
             )

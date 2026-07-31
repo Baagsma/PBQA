@@ -44,7 +44,7 @@ qdrant_host = os.getenv("QDRANT_HOST", "localhost")
 qdrant_port = int(os.getenv("QDRANT_PORT", 6333))
 reset_db = os.getenv("TEST_RESET_DB", "true").lower() == "true"
 rerank_host = os.getenv("RERANK_HOST", "localhost")
-rerank_port = int(os.getenv("RERANK_PORT", 8080))
+rerank_port = int(os.getenv("RERANK_PORT", 8090))
 
 db = DB(host=qdrant_host, port=qdrant_port, reset=reset_db)
 llm = LLM(db=db, host=rerank_host)

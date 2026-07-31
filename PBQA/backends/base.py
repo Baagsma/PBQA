@@ -8,11 +8,33 @@ pattern layer, schema preprocessing, and routing.
 """
 
 import logging
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import List
+from typing import Callable, List
 
 log = logging.getLogger("PBQA.backends")
+
+# A server refusing a sampling parameter names it in the refusal, e.g. vLLM
+# with speculative decoding: "The min_p and logit_bias sampling parameters are
+# not yet supported with speculative decoding." Anything else in the sentence
+# is prose, filtered out by matching against the parameters actually sent.
+UNSUPPORTED_SAMPLING_PARAMS = re.compile(
+    r"(?P<params>[\w, ]+?)\s+sampling parameters?\s+(?:is|are)\s+not(?: yet)? supported",
+    re.IGNORECASE,
+)
+
+
+def error_body(response: dict) -> dict | None:
+    """The OpenAI-style error object from a response, or None if there is none.
+
+    Servers use two shapes for the same error: nested ({"error": {...}}) and
+    flat ({"object": "error", "message": ...}).
+    """
+    if not ("error" in response or response.get("object") == "error"):
+        return None
+    error = response.get("error", response)
+    return error if isinstance(error, dict) else {"message": str(error)}
 
 
 class EngineDriftError(ValueError):
@@ -79,6 +101,9 @@ class Backend(ABC):
         # Capabilities, populated by connect()
         self.is_rerank = False
         self.store_cache = False
+        # Sampling parameters this server refused, learned from its own error
+        # message and kept out of every subsequent payload
+        self._suppressed_params: set[str] = set()
 
     @classmethod
     def detect(cls, config: BackendConfig) -> bool:
@@ -149,10 +174,61 @@ class Backend(ABC):
 
         Stop sequences are additive (defaults + per-call) rather than
         overriding, so per-call stop strings extend the connect-time ones.
+        Parameters this server has refused never reach the wire again.
         """
         defaults = self.config.request_defaults
         merged = {**defaults, **overrides}
         merged["stop"] = list(defaults.get("stop", [])) + list(
             overrides.get("stop", [])
         )
+        for param in self._suppressed_params:
+            merged.pop(param, None)
         return merged
+
+    def _recover_unsupported_params(
+        self,
+        response: dict,
+        overrides: dict,
+        send: Callable[[], dict],
+    ) -> dict:
+        """Retry once without the sampling parameters the server just refused.
+
+        Some deployments reject otherwise valid requests over a sampling
+        parameter they cannot serve — vLLM running speculative decoding 400s
+        on min_p and logit_bias, and PBQA sends min_p by default. The refusal
+        names the offending parameters, so they are dropped from this
+        backend's payloads from here on: the failed round-trip is paid once
+        per server, not once per request.
+
+        Any other error is returned untouched for the caller to raise on.
+        """
+        refused = self._refused_params(response, overrides)
+        if not refused:
+            return response
+
+        self._suppressed_params |= refused
+        log.warning(
+            f"Server at {self.config.address} does not support the "
+            f"{', '.join(sorted(refused))} sampling parameter(s); dropping "
+            f"them from every request to this backend and retrying."
+        )
+        return send()
+
+    def _refused_params(self, response: dict, overrides: dict) -> set[str]:
+        """Sampling parameters a response names as unsupported.
+
+        Only names this backend actually sends count — the rest of the
+        sentence is prose. Names already suppressed are excluded, so a server
+        that keeps failing after the strip raises instead of retrying again.
+        """
+        error = error_body(response)
+        if error is None:
+            return set()
+
+        match = UNSUPPORTED_SAMPLING_PARAMS.search(str(error.get("message", "")))
+        if not match:
+            return set()
+
+        named = set(re.findall(r"[a-z_][a-z0-9_]*", match.group("params").lower()))
+        sent = set(self.config.request_defaults) | set(overrides)
+        return (named & sent) - self._suppressed_params

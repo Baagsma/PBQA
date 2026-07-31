@@ -14,7 +14,12 @@ from typing import List
 
 import requests
 
-from PBQA.backends.base import Backend, BackendConfig, EngineDriftError
+from PBQA.backends.base import (
+    Backend,
+    BackendConfig,
+    EngineDriftError,
+    error_body,
+)
 
 log = logging.getLogger("PBQA.backends.llamacpp")
 
@@ -79,15 +84,6 @@ class LlamaCppBackend(Backend):
     ) -> dict:
         slot = self._get_cache_slot(pattern)
 
-        data = {
-            "model": model,
-            "id_slot": slot,
-            "cache_prompt": use_cache,
-            "messages": messages,
-            **({"json_schema": schema} if schema else {}),
-            **self._merge_request(overrides),
-        }
-
         if self.store_cache:
             self._load_cache(pattern, model, slot)
 
@@ -96,24 +92,22 @@ class LlamaCppBackend(Backend):
             f"{self.config.address} ID slot {slot}"
         )
 
+        def send() -> dict:
+            return self._chat_completion(
+                messages, schema, model, slot, overrides, use_cache
+            )
+
         then = time()
-        response = requests.post(
-            self.config.base_url + "/v1/chat/completions",
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": "Bearer no-key",
-            },
-            data=json.dumps(data),
-        ).json()
+        response = self._recover_unsupported_params(send(), overrides, send)
         if "error" in response or response.get("object") == "error":
             # llama.cpp ignores the request's model name entirely - a server
             # that REJECTS it as unknown is not llama.cpp (vLLM's 404, in
             # either its nested {"error": {...}} or flat {"object": "error"}
             # shape). The engine behind this address has changed; retrying
             # in llama.cpp dialect can never succeed.
-            err = response.get("error", response)
-            message = err.get("message", "") if isinstance(err, dict) else str(err)
-            err_type = err.get("type", "") if isinstance(err, dict) else ""
+            err = error_body(response)
+            message = err.get("message", "")
+            err_type = err.get("type", "")
             if "does not exist" in message or err_type == "NotFoundError":
                 raise EngineDriftError(
                     f"Server at {self.config.address} rejected the model name "
@@ -135,6 +129,32 @@ class LlamaCppBackend(Backend):
             "response_time": response_time,
             "finish_reason": choice.get("finish_reason"),
         }
+
+    def _chat_completion(
+        self,
+        messages: List[dict],
+        schema: dict | None,
+        model: str,
+        slot: int,
+        overrides: dict,
+        use_cache: bool,
+    ) -> dict:
+        data = {
+            "model": model,
+            "id_slot": slot,
+            "cache_prompt": use_cache,
+            "messages": messages,
+            **({"json_schema": schema} if schema else {}),
+            **self._merge_request(overrides),
+        }
+        return requests.post(
+            self.config.base_url + "/v1/chat/completions",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer no-key",
+            },
+            data=json.dumps(data),
+        ).json()
 
     def rerank(self, query: str, documents: List[str]) -> List[dict]:
         response = requests.post(

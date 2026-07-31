@@ -45,7 +45,6 @@ llm = LLM(db=db, host=llm_host)
 llm.connect_model(
     model="llama",
     port=llm_port,
-    stop=["<|eot_id|>", "<|start_header_id|>", "<|im_end|>"],
 )
 
 # Test 1: Custom history bypasses database

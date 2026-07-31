@@ -18,7 +18,7 @@ from typing import List
 
 import requests
 
-from PBQA.backends.base import Backend, BackendConfig
+from PBQA.backends.base import Backend, BackendConfig, error_body
 
 log = logging.getLogger("PBQA.backends.vllm")
 
@@ -159,8 +159,11 @@ class VLLMBackend(Backend):
                     f"never match a served model."
                 )
 
+        def send() -> dict:
+            return self._chat_completion(messages, schema, model, overrides)
+
         then = time()
-        response = self._chat_completion(messages, schema, model, overrides)
+        response = send()
         if self._is_unknown_model_error(response):
             # A different model was deployed on this port since we connected;
             # rediscover the served id and retry once
@@ -171,7 +174,8 @@ class VLLMBackend(Backend):
                     f"Served model at {self.config.address} changed "
                     f"({stale} -> {self.model_id}); retrying"
                 )
-                response = self._chat_completion(messages, schema, model, overrides)
+                response = send()
+        response = self._recover_unsupported_params(response, overrides, send)
         if "error" in response or response.get("object") == "error":
             raise ValueError(f"LLM error:\n{json.dumps(response, indent=4)}")
 
@@ -206,11 +210,13 @@ class VLLMBackend(Backend):
 
     @staticmethod
     def _is_unknown_model_error(response: dict) -> bool:
-        if not ("error" in response or response.get("object") == "error"):
+        error = error_body(response)
+        if error is None:
             return False
-        error = response.get("error", response)
-        message = error.get("message", "") if isinstance(error, dict) else ""
-        return "does not exist" in message or error.get("type") == "NotFoundError"
+        return (
+            "does not exist" in error.get("message", "")
+            or error.get("type") == "NotFoundError"
+        )
 
     def warm(self, messages: List[dict], pattern: str, model: str) -> None:
         # Chat templates typically require the conversation to end on a user

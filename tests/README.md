@@ -2,6 +2,19 @@
 
 This directory contains test files for the PBQA library functionality.
 
+Two kinds of tests live here:
+
+- **Unit tests** (`test_*.py`) — no servers, no network. The HTTP transport is
+  replaced by an in-memory fake (`mock_transport.py`), so they pin exact wire
+  behavior. Run them with `python -m pytest tests/`.
+- **Integration scripts** (everything else) — run against live services and
+  assert behavior end to end.
+
+The integration scripts are engine-neutral: they exercise PBQA's behavior
+(schema-valid output, history handling, retrieval), never a particular
+inference server's features. Any OpenAI-compatible server PBQA supports
+(llama.cpp, vLLM) can serve them.
+
 ## Setup
 
 ### 1. Environment Configuration
@@ -38,9 +51,17 @@ Make sure you have:
 - **Qdrant server** running (required for most tests)
   - Default: `localhost:6333`
   - See [Qdrant installation](https://qdrant.tech/documentation/quick-start/)
-- **llama.cpp server** running (required for LLM tests)
+  - **Warning:** the scripts use `DB(reset=True)`, which wipes every collection
+    in the target Qdrant. Point them at a throwaway instance, never at one
+    holding data you care about.
+- **Inference server** running (required for LLM tests)
   - Default: `localhost:8080`
-  - See [llama.cpp server](https://github.com/ggerganov/llama.cpp/blob/master/examples/server/README.md)
+  - Any OpenAI-compatible server PBQA supports — [llama.cpp](https://github.com/ggerganov/llama.cpp/blob/master/examples/server/README.md)
+    or [vLLM](https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html).
+    The engine is detected on connect; nothing in the tests assumes one.
+  - Servers that refuse sampling parameters (vLLM running speculative decoding
+    rejects `min_p`) need no configuration: PBQA drops the refused parameter
+    and retries, once per server.
 - **Rerank model server** running (required for rerank tests only)
   - Default: `localhost:8090` (can be same as LLM server or separate)
   - Configure with `RERANK_HOST` and `RERANK_PORT` if using a different endpoint
@@ -86,15 +107,25 @@ python -m tests.rerank
 ### Run All Tests
 
 ```bash
-# From project root
-for test in tests/*.py; do
-    python -m "tests.$(basename $test .py)" || exit 1
-done
+# Unit tests only (no servers needed)
+python -m pytest tests/
+
+# Every integration script, as one command
+PBQA_INTEGRATION=1 python -m pytest tests/test_integration.py -v
 ```
 
 ## Test Files
 
-### Core Functionality Tests
+### Unit Tests (no servers)
+
+- **`test_backends.py`** - llama.cpp wire behavior and engine-agnostic routing
+- **`test_vllm_backend.py`** - vLLM wire behavior, warm-on-link, mixed-engine fallback
+- **`test_engine_drift.py`** - self-healing when the engine behind an address changes
+- **`test_sampling_params.py`** - self-healing when a server refuses a sampling parameter
+- **`test_examples_override.py`** - explicit `examples=` serving and placement
+- **`test_integration.py`** - runs the integration scripts below (needs `PBQA_INTEGRATION=1`)
+
+### Integration Scripts (live services)
 
 - **`upsert_delete.py`** - Tests for upsert and delete operations
   - Custom document IDs (UUID format)
@@ -112,8 +143,6 @@ done
   - Dot notation (`user.query`)
   - Array indexing (`history[0]`, `history[-1]`)
   - Complex nested access (`user.history[0].input`)
-
-### Advanced Feature Tests
 
 - **`custom_history.py`** - Tests for custom history handling
 - **`convo.py`** - Conversation pattern tests
@@ -133,6 +162,10 @@ done
 | `RERANK_PORT` | `8090` | Rerank model server port |
 | `TEST_RESET_DB` | `true` | Reset database before tests |
 | `TEST_LOG_LEVEL` | `INFO` | Logging level (DEBUG, INFO, WARNING, ERROR) |
+| `PBQA_INTEGRATION` | unset | Set to `1` to run the integration scripts under pytest |
+
+Inline environment variables override `.env`: `load_dotenv()` does not replace
+variables that are already set.
 
 ## Troubleshooting
 
