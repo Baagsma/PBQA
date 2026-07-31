@@ -257,6 +257,8 @@ class LLM:
         n_hist: int = 0,
         n_example: int = 0,
         min_d: float = None,
+        examples: List[dict] = None,
+        example_offset: int = 0,
         use_cache: bool = True,
         schema: BaseModel = None,
         stop: List[str] = [],
@@ -322,6 +324,8 @@ class LLM:
             n_hist=n_hist,
             n_example=n_example,
             min_d=min_d,
+            examples=examples,
+            example_offset=example_offset,
             custom_history=custom_history,
             **kwargs,
         )
@@ -541,6 +545,8 @@ class LLM:
         n_hist: int = 0,
         hist_duration: int = DEFAULT_HIST_DURATION,
         min_d: float = None,
+        examples: List[dict] = None,
+        example_offset: int = 0,
         user_name: str = DEFAULT_USER_NAME,
         assistant_name: str = DEFAULT_ASSISTANT_NAME,
         log_input: bool = False,
@@ -562,6 +568,19 @@ class LLM:
         - n_hist (int): The number of historical examples to load from the database.
         - hist_duration (int): The duration of the historical examples to load.
         - min_d (float): The minimum distance between the input and the examples.
+        - examples (List[dict]): Explicit examples to render in the
+          retrieved-example slot, bypassing database retrieval entirely.
+          Items must have the shape returned by db.query()/db.where()
+          ({"input": ..., "response": ..., "metadata": ...} for pattern
+          collections). When provided (even as an empty list), n_example
+          and min_d are ignored; selection policy is the caller's
+          responsibility.
+        - example_offset (int): Number of base examples (counted from the
+          end of the base set) that render AFTER the served examples.
+          0 (default) places served examples directly after all base
+          examples — closest to the live input and least cache-intrusive.
+          Values > 0 buffer the served examples behind that many base
+          examples, which shortens the cacheable prefix accordingly.
         - user_name (str): The name of the user.
         - assistant_name (str): The name of the assistant.
         - custom_history (List[dict]): Custom conversation history to use instead of database retrieval.
@@ -673,32 +692,49 @@ class LLM:
                 base_example=True,
             )
             base_examples.reverse()
-            messages += format(base_examples)
+
+        base_messages = format(base_examples)
 
         log.info(f"Base examples: {len(base_examples)}")
 
-        examples = []
-        if input:
-            query_input = input
-            if type(input) == dict:
-                input_key = metadata.get("input_key", "input")
-                if not path_exists(input, input_key):
-                    raise ValueError(
-                        f"Input dict must contain {input_key} key/path, got {input.keys()}"
-                    )
-                query_input = resolve_path(input, input_key)
+        if examples is not None:
+            # Explicit override: the caller has already selected the examples
+            # to serve; PBQA stays a renderer and skips retrieval entirely.
+            example_docs = examples
+            log.info(f"Examples: {len(example_docs)} (provided)")
+        else:
+            example_docs = []
+            if input:
+                query_input = input
+                if type(input) == dict:
+                    input_key = metadata.get("input_key", "input")
+                    if not path_exists(input, input_key):
+                        raise ValueError(
+                            f"Input dict must contain {input_key} key/path, got {input.keys()}"
+                        )
+                    query_input = resolve_path(input, input_key)
 
-            examples = self.db.query(
-                pattern,
-                query_input,
-                n=n_example,
-                min_d=min_d,
-                base_example={"ne": True},
-                **kwargs,
-            )
-            messages += format(examples)
+                example_docs = self.db.query(
+                    pattern,
+                    query_input,
+                    n=n_example,
+                    min_d=min_d,
+                    base_example={"ne": True},
+                    **kwargs,
+                )
 
-        log.info(f"Examples: {len(examples)}/{n_example}")
+            log.info(f"Examples: {len(example_docs)}/{n_example}")
+
+        example_messages = format(example_docs)
+
+        if example_messages and example_offset > 0:
+            # Each example renders as a user/assistant pair; the offset counts
+            # examples, so the insertion point sits 2*offset messages from the
+            # end of the base block.
+            cut = max(0, len(base_messages) - 2 * example_offset)
+            messages += base_messages[:cut] + example_messages + base_messages[cut:]
+        else:
+            messages += base_messages + example_messages
 
         hist = []
         if custom_history is not None:
@@ -849,6 +885,8 @@ class LLM:
         n_hist: int = 0,
         n_example: int = 0,
         min_d: float = None,
+        examples: List[dict] = None,
+        example_offset: int = 0,
         use_cache: bool = True,
         cache_slot: int = None,
         schema: BaseModel = None,
@@ -870,6 +908,15 @@ class LLM:
         - n_hist (int): The number of historical examples to load from the database.
         - n_example (int): The number of examples to load from the database.
         - min_d (float): The minimum distance between the input and the examples.
+        - examples (List[dict]): Explicit examples to render in the
+          retrieved-example slot (between base examples and history/input),
+          bypassing database retrieval entirely. Items must have the shape
+          returned by db.query()/db.where(). When provided (even as an
+          empty list), n_example and min_d are ignored; selection policy
+          is the caller's responsibility.
+        - example_offset (int): Number of base examples (from the end of
+          the base set) that render AFTER the served examples. 0 (default)
+          places served examples directly after all base examples.
         - use_cache (bool): Whether to use the cache for the response.
         - cache_slot (int): Deprecated and ignored. Cache slots are managed
           internally by the backend.
@@ -915,6 +962,8 @@ class LLM:
             n_hist=n_hist,
             n_example=n_example,
             min_d=min_d,
+            examples=examples,
+            example_offset=example_offset,
             use_cache=use_cache,
             schema=schema,
             stop=stop,
