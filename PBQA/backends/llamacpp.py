@@ -145,6 +145,11 @@ class LlamaCppBackend(Backend):
             "cache_prompt": use_cache,
             "messages": messages,
             **({"json_schema": schema} if schema else {}),
+            # Also carry the vLLM field: behind a failover router the same
+            # request can land on a vLLM server, which ignores json_schema.
+            # Each engine ignores the foreign field, so schema enforcement
+            # survives whichever backend answers.
+            **({"structured_outputs": {"json": schema}} if schema else {}),
             **self._merge_request(overrides),
         }
         return requests.post(

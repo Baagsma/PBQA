@@ -197,6 +197,11 @@ class VLLMBackend(Backend):
             "model": self.model_id or model,
             "messages": messages,
             **({"structured_outputs": {"json": schema}} if schema else {}),
+            # Also carry the llama.cpp field — behind a failover router the
+            # same request can land on a llama.cpp server, which ignores
+            # structured_outputs. Each engine ignores the foreign field, so
+            # schema enforcement survives whichever backend answers.
+            **({"json_schema": schema} if schema else {}),
             **self._merge_request(overrides),
         }
         return requests.post(

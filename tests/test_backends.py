@@ -182,6 +182,7 @@ def test_payload_contains_no_internal_config(transport):
     # Golden payload shape: exactly these keys, nothing more
     assert set(payload.keys()) == {
         "model", "id_slot", "cache_prompt", "messages", "json_schema",
+        "structured_outputs",  # dual-emitted so a router failover to vLLM keeps enforcement
         "stop", "temperature", "min_p", "top_p", "max_tokens",
     }
     assert payload["model"] == MODEL
@@ -192,6 +193,7 @@ def test_payload_contains_no_internal_config(transport):
     assert payload["top_p"] == 1.0
     assert payload["max_tokens"] == 4096
     assert payload["json_schema"] == Weather.model_json_schema()
+    assert payload["structured_outputs"] == {"json": Weather.model_json_schema()}
 
     # Messages: system + base example pair + input
     roles = [m["role"] for m in payload["messages"]]
