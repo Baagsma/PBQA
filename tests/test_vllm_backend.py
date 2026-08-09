@@ -74,12 +74,14 @@ def test_payload_uses_structured_outputs_and_served_model(transport):
     # id_slot and cache_prompt (llama.cpp-only), any internal config.
     assert set(payload.keys()) == {
         "model", "messages", "structured_outputs",
+        "json_schema",  # dual-emitted so a router failover to llama.cpp keeps enforcement
         "stop", "temperature", "min_p", "top_p", "max_tokens",
     }
     # The wire model is the served model id, not PBQA's model name
     assert payload["model"] == SERVED_ID
     # vLLM >= 0.12 structured output format (guided_json was removed)
     assert payload["structured_outputs"] == {"json": Weather.model_json_schema()}
+    assert payload["json_schema"] == Weather.model_json_schema()
 
     roles = [m["role"] for m in payload["messages"]]
     assert roles == ["system", "user", "assistant", "user"]
