@@ -332,24 +332,7 @@ class LLM:
 
         metadata = self.db.get_metadata(pattern)
 
-        # If the schema consists of a single str component, pass None instead of the schema
-        # Exception: If the string has enum constraints (Literal types), keep the schema
-        # Note: Optional types use "anyOf" instead of direct "type", so we use .get()
-        prop_name = None
-        schema = schema or metadata["schema"]
-        if (
-            len(schema["properties"]) == 1
-            and (prop_name := list(schema["properties"].keys())[0])
-            and schema["properties"][prop_name].get("type") == "string"
-            and "enum" not in schema["properties"][prop_name]
-        ):
-            log.info(
-                f"Schema consists of a single string component ({prop_name}). Passing None instead of the schema."
-            )
-            schema = None
-
-        if schema:
-            schema = resolve_refs(schema)
+        schema, prop_name = self._prepare_schema(schema or metadata["schema"])
 
         overrides = {**kwargs, "stop": stop}
 
@@ -407,6 +390,31 @@ class LLM:
             f"All backends failed for model '{model}': {last_error}\n\n"
             f"Ensure at least one inference server is running."
         )
+
+    @staticmethod
+    def _prepare_schema(schema: dict) -> tuple[dict | None, str | None]:
+        """The wire schema for a pattern schema, plus the single property name.
+
+        If the schema consists of a single str component, the wire schema is
+        None (the completion is used as-is rather than parsed as JSON).
+        Exception: a string with enum constraints (Literal types) keeps the
+        schema. Otherwise all $refs are inlined — not all grammar engines
+        resolve them correctly. Note: Optional types use "anyOf" instead of a
+        direct "type", hence .get().
+        """
+        prop_name = None
+        if (
+            len(schema["properties"]) == 1
+            and (prop_name := list(schema["properties"].keys())[0])
+            and schema["properties"][prop_name].get("type") == "string"
+            and "enum" not in schema["properties"][prop_name]
+        ):
+            log.info(
+                f"Schema consists of a single string component ({prop_name}). Passing None instead of the schema."
+            )
+            return None, prop_name
+
+        return resolve_refs(schema), prop_name
 
     def _attempt_backend(
         self,
@@ -866,8 +874,15 @@ class LLM:
             )
             return
 
+        # Backends that render the schema into the prompt (no server-side
+        # grammar) need it here too, or the warmed prefix diverges from the
+        # query prefix at the very first message and never gets reused.
+        schema, _ = self._prepare_schema(self.db.get_metadata(pattern)["schema"])
+        if schema and backend.config.strict_schema:
+            schema = lock_schema(schema)
+
         try:
-            backend.warm(messages, pattern, model)
+            backend.warm(messages, pattern, model, schema=schema)
         except Exception as e:
             log.warning(
                 f'Failed to warm pattern "{pattern}" on {backend.config.address}: {e}'

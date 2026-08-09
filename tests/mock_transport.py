@@ -227,6 +227,95 @@ class FakeVLLMServer:
         return [c for c in self.calls if c[1].startswith(path_prefix)]
 
 
+class FakeNinferServer:
+    """Mimics a NInfer server's HTTP surface, recording every call.
+
+    Wire behavior copied from a live ninfer-serve (commit 455c13c,
+    2026-08-09): exact model-alias enforcement (404 model_not_found),
+    response_format rejection, nested {"error": {...}} shape, unknown
+    sampling fields silently ignored.
+    """
+
+    def __init__(self, model_id="qwen3.6-27b-nvfp4-ninfer"):
+        self.calls = []  # (method, path_with_query, body)
+        self.model_id = model_id
+        self.chat_content = _json.dumps({"temperature": 20.0, "condition": "sunny"})
+        self.chat_contents = []  # consumed in order, then chat_content
+        self.chat_error = None  # exception to raise on /v1/chat/completions
+        self.usage = {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+
+    def _next_content(self):
+        return self.chat_contents.pop(0) if self.chat_contents else self.chat_content
+
+    def handle(self, method, path, body):
+        self.calls.append((method, path, body))
+
+        if method == "GET" and path == "/health":
+            return FakeResponse({"status": "ok"})
+        if method == "GET" and path == "/props":
+            # cpp-httplib bare 404, no JSON body
+            return FakeResponse(None, status_code=404)
+        if path.startswith("/slots/"):
+            return FakeResponse(None, status_code=404)
+        if method == "GET" and path == "/v1/models":
+            return FakeResponse(
+                {
+                    "object": "list",
+                    "data": [
+                        {"id": self.model_id, "object": "model", "owned_by": "ninfer"}
+                    ],
+                }
+            )
+        if path == "/v1/chat/completions":
+            if self.chat_error:
+                raise self.chat_error
+            if body.get("model") != self.model_id:
+                return FakeResponse(
+                    {
+                        "error": {
+                            "message": f"model '{body.get('model')}' not found",
+                            "type": "invalid_request_error",
+                            "param": None,
+                            "code": "model_not_found",
+                        }
+                    },
+                    status_code=404,
+                )
+            fmt = body.get("response_format")
+            if fmt is not None and fmt.get("type") != "text":
+                return FakeResponse(
+                    {
+                        "error": {
+                            "message": "only response_format {type:text} is supported",
+                            "type": "invalid_request_error",
+                            "param": "response_format",
+                            "code": "response_format_not_supported",
+                        }
+                    },
+                    status_code=400,
+                )
+            return FakeResponse(
+                {
+                    "choices": [
+                        {
+                            "message": {
+                                "role": "assistant",
+                                "content": self._next_content(),
+                            },
+                            "finish_reason": "stop",
+                            "index": 0,
+                        }
+                    ],
+                    "usage": self.usage,
+                }
+            )
+
+        raise AssertionError(f"Unexpected request: {method} {path}")
+
+    def calls_to(self, path_prefix):
+        return [c for c in self.calls if c[1].startswith(path_prefix)]
+
+
 class FakeTransport:
     """Drop-in replacement for the requests module inside backend code."""
 
@@ -242,6 +331,11 @@ class FakeTransport:
 
     def add_vllm_server(self, host, port, **kwargs):
         server = FakeVLLMServer(**kwargs)
+        self.servers[f"{host}:{port}"] = server
+        return server
+
+    def add_ninfer_server(self, host, port, **kwargs):
+        server = FakeNinferServer(**kwargs)
         self.servers[f"{host}:{port}"] = server
         return server
 

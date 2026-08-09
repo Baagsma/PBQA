@@ -16,6 +16,7 @@ setup(
     packages=find_packages(),
     install_requires=[
         "PyYAML",
+        "jsonschema",  # client-side validation for engines without grammar (ninfer)
         "requests",
         "accelerate",
         "transformers",

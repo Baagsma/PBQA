@@ -1,4 +1,5 @@
 PyYAML
+jsonschema
 requests
 accelerate
 transformers

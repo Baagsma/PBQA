@@ -152,12 +152,21 @@ class Backend(ABC):
         (triggers failover) and ValueError on server-reported errors (aborts).
         """
 
-    def warm(self, messages: List[dict], pattern: str, model: str) -> None:
+    def warm(
+        self,
+        messages: List[dict],
+        pattern: str,
+        model: str,
+        schema: dict | None = None,
+    ) -> None:
         """Prefill the pattern prefix so subsequent requests hit the cache.
 
         Default no-op; engines with automatic prefix caching implement this as
-        a minimal (max_tokens=1) request. Failures should be logged, not
-        raised — warming is an optimization, not a correctness requirement.
+        a minimal (max_tokens=1) request. `schema` is the pattern's wire
+        schema: backends that render it into the prompt must include it here
+        exactly as generate() does, or the warmed prefix never matches.
+        Failures should be logged, not raised — warming is an optimization,
+        not a correctness requirement.
         """
 
     def rerank(self, query: str, documents: List[str]) -> List[dict]:

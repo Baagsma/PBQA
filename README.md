@@ -193,7 +193,7 @@ This sets `additionalProperties: false` on all object types in the JSON schema b
 Benchmarks show a **2-3x speedup** in structured generation throughput compared to the default GBNF grammar engine, with improved reliability on complex nested schemas.
 
 ### Engines
-PBQA can talk to different inference engines through the same API. By default the engine is detected automatically when connecting — llama.cpp is recognized by its `/props` endpoint, vLLM by the `owned_by` field on `/v1/models` — so the same client code works regardless of which engine is behind the port:
+PBQA can talk to different inference engines through the same API. By default the engine is detected automatically when connecting — llama.cpp is recognized by its `/props` endpoint, vLLM and NInfer by the `owned_by` field on `/v1/models` — so the same client code works regardless of which engine is behind the port:
 
 ```py
 llm.connect_model(model="llama", port=8080)                  # auto-detected
@@ -204,6 +204,7 @@ The pattern layer, schema handling, and `ask()` semantics are identical across e
 
 - **llamacpp** — llama.cpp server. Structured output via the `json_schema` request field; per-pattern KV caches persisted to disk through slot save/restore (see [Cache](#cache)).
 - **vllm** — vLLM OpenAI-compatible server (v0.12+). Structured output via the `structured_outputs` request field; caching is handled entirely by vLLM's automatic prefix caching. On `link()`, PBQA prefills the pattern's fixed prefix (system prompt + base examples) so first queries hit the cache — since vLLM's cache lives in VRAM and does not survive a restart, `llm.warm(pattern)` can be called to re-prefill after a known server restart. The `model` field sent to the server is the served model id discovered at connect time.
+- **ninfer** — [NInfer](https://github.com/Neroued/ninfer) server (RTX 5090-only engine for Qwen3.6 artifacts). NInfer has no grammar-constrained decoding, so structured output is *soft*: the schema is rendered into the system message and the completion is validated client-side against it, with one jittered retry on violation — the pattern's examples carry most of the weight, but outputs are validated rather than guaranteed-by-construction. No warming: NInfer's prefix reuse is a single restore checkpoint that pattern rotation can never hit, so every query pays the (fast) full prefill. The `model` field is the served alias discovered at connect time, which NInfer enforces strictly.
 
 Fallback backends (`llm.add_fallback()`) may use a different engine than the primary, e.g. a vLLM primary with a llama.cpp fallback.
 

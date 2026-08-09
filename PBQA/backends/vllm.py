@@ -218,7 +218,15 @@ class VLLMBackend(Backend):
             or error.get("type") == "NotFoundError"
         )
 
-    def warm(self, messages: List[dict], pattern: str, model: str) -> None:
+    def warm(
+        self,
+        messages: List[dict],
+        pattern: str,
+        model: str,
+        schema: dict | None = None,
+    ) -> None:
+        # schema is unused: vLLM enforces schemas server-side (grammar), so
+        # the prompt — and with it the cached prefix — is schema-independent
         # Chat templates typically require the conversation to end on a user
         # turn. The filler content sits past the shared prefix, so the cached
         # blocks still cover the system prompt and examples.
