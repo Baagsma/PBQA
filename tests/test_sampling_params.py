@@ -168,15 +168,37 @@ def test_llamacpp_dialect_recovers_too(transport):
 
 
 # =============================================================================
-# The path that broke live: malformed JSON -> sampling jitter -> refusal
+# The unusable-response retry: deterministic by default, user-opted otherwise
 # =============================================================================
 
 
-def test_jittered_retry_survives_refusal(transport):
+def test_unusable_retry_never_touches_temperature(transport):
     llm, server = make_vllm_llm(transport, temperature=0)
     # Greedy generation runs into a repetition loop and comes back truncated;
-    # the jittered retry raises temperature above 0, which is what turns the
-    # min_p the request has always carried into a 400
+    # the retry applies only the default retry_overrides — a repetition
+    # penalty (deterministic loop-breaker). Temperature is user-instigated
+    # only, so it stays exactly as configured.
+    server.chat_contents = ['{"temperature": 20.0, "condition": "sun']
+
+    result = llm.ask(input="what's the weather?", pattern="weather", model=MODEL)
+
+    assert result["response"] == {"temperature": 20.0, "condition": "sunny"}
+    malformed, retried = chat_payloads(server)
+    assert malformed["temperature"] == 0 and "repetition_penalty" not in malformed
+    assert retried["temperature"] == 0
+    assert retried["repetition_penalty"] == 1.1
+    # Greedy requests keep min_p; nothing here turns into a refusal
+    assert "min_p" in retried
+
+
+def test_user_opted_retry_temperature_survives_refusal(transport):
+    # The live 2026-07-31 chain, now reachable only by explicit opt-in: a
+    # user-configured retry temperature above 0 turns the ever-present min_p
+    # into a 400 on this speculative-decoding server; the strip-retry heals it.
+    llm, server = make_vllm_llm(
+        transport, temperature=0,
+        retry_overrides={"temperature": 0.3, "repetition_penalty": 1.1},
+    )
     server.chat_contents = ['{"temperature": 20.0, "condition": "sun']
 
     result = llm.ask(input="what's the weather?", pattern="weather", model=MODEL)
@@ -184,6 +206,6 @@ def test_jittered_retry_survives_refusal(transport):
     assert result["response"] == {"temperature": 20.0, "condition": "sunny"}
     malformed, refused, retried = chat_payloads(server)
     assert malformed["temperature"] == 0 and "min_p" in malformed
-    assert refused["temperature"] >= 0.3 and "min_p" in refused
-    assert retried["temperature"] == refused["temperature"]
+    assert refused["temperature"] == 0.3 and "min_p" in refused
+    assert retried["temperature"] == 0.3
     assert "min_p" not in retried

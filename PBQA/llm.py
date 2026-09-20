@@ -82,6 +82,7 @@ class LLM:
         store_cache: bool = True,
         strict_schema: bool = False,
         engine: str = "auto",
+        retry_overrides: dict = None,
         **kwargs,
     ) -> Backend:
         """
@@ -101,6 +102,11 @@ class LLM:
           object types in JSON schemas. Required for servers using llguidance-based
           grammar enforcement, which defaults additionalProperties to true per the
           JSON Schema spec.
+        - retry_overrides (dict): Parameters merged into the one retry after an
+          unusable response (malformed JSON / schema violation). Defaults to a mild
+          repetition penalty (deterministic loop-breaker); temperature is never
+          changed automatically — pass {} for an untouched retry, or add
+          parameters explicitly to opt in.
         - engine (str): The inference engine serving the model. "auto"
           (default) probes the server and picks the matching registered
           backend; pass an explicit name ("llamacpp", "vllm", ...) to skip
@@ -135,6 +141,7 @@ class LLM:
                 "stop": stop,
                 **kwargs,
             },
+            **({"retry_overrides": retry_overrides} if retry_overrides is not None else {}),
         )
 
         if engine == "auto":
@@ -184,6 +191,7 @@ class LLM:
 
         strict_schema = kwargs.pop("strict_schema", primary.config.strict_schema)
         store_cache = kwargs.pop("store_cache", primary.config.store_cache)
+        retry_overrides = kwargs.pop("retry_overrides", primary.config.retry_overrides)
 
         config = BackendConfig(
             host=host,
@@ -191,6 +199,7 @@ class LLM:
             strict_schema=strict_schema,
             store_cache=store_cache,
             request_defaults={**primary.config.request_defaults, **kwargs},
+            retry_overrides=retry_overrides,
         )
 
         if engine is None:
@@ -463,9 +472,10 @@ class LLM:
             # - malformed JSON: typically a generation cut at max_tokens
             #   mid-escape — a greedy repetition attractor (e.g. endless
             #   null escapes inside a legal JSON string). Identical params
-            #   at temp 0 replay the exact same loop, so the retry jitters
-            #   sampling and adds a repetition penalty (engines ignore
-            #   penalty keys they don't know).
+            #   replay the exact same loop, so the retry applies the
+            #   backend's retry_overrides (default: a mild repetition
+            #   penalty — deterministic, no randomness; temperature is
+            #   never touched automatically).
             # - a schema violation: clean JSON whose values escape the
             #   grammar — enforcement silently failing (engine drift, an
             #   ignored request field). Verified, never assumed.
@@ -476,20 +486,15 @@ class LLM:
                 f"finish_reason={result.get('finish_reason')}, "
                 f"completion_tokens={result.get('usage', {}).get('completion_tokens')}, "
                 f"len={len(content)}, tail={content[-200:]!r}. "
-                f"Retrying once without cache, with sampling jitter."
+                f"Retrying once without cache, with retry overrides "
+                f"{backend.config.retry_overrides}."
             )
-            jittered = {
-                **overrides,
-                "temperature": max(0.3, float(overrides.get("temperature") or 0)),
-                "repetition_penalty": 1.1,  # vLLM
-                "repeat_penalty": 1.1,  # llama.cpp
-            }
             result = backend.generate(
                 messages=messages,
                 schema=send_schema,
                 pattern=pattern,
                 model=model,
-                overrides=jittered,
+                overrides={**overrides, **backend.config.retry_overrides},
                 use_cache=False,
             )
             content = result["content"]

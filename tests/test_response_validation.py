@@ -89,7 +89,8 @@ def test_out_of_schema_is_retried_then_accepted(transport):
     assert result["response"] == {"temperature": 20.0, "condition": "sunny"}
     first, second = chat_payloads(server)
     assert first["temperature"] == 0
-    assert second["temperature"] >= 0.3  # the jittered rescue
+    assert second["temperature"] == 0  # temperature is only ever user-instigated
+    assert second["repetition_penalty"] == 1.1  # the deterministic loop-breaker
 
 
 def test_persistent_violation_raises_loudly(transport):

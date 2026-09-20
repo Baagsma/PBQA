@@ -13,6 +13,15 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Callable, List
 
+# Applied only on the retry after an unusable response: a mild repetition
+# penalty deterministically breaks greedy repetition loops (it reshapes the
+# logits before argmax) without introducing randomness. Temperature is
+# deliberately absent — sampling temperature is only ever user-instigated.
+DEFAULT_RETRY_OVERRIDES = {
+    "repetition_penalty": 1.1,  # vLLM
+    "repeat_penalty": 1.1,  # llama.cpp
+}
+
 log = logging.getLogger("PBQA.backends")
 
 # A server refusing a sampling parameter names it in the refusal, e.g. vLLM
@@ -66,6 +75,14 @@ class BackendConfig:
     - request_defaults: Default generation parameters (temperature, min_p,
       max_tokens, stop, ...) merged into every request payload. This is the
       only part of the config that ever reaches the wire.
+    - retry_overrides: Parameters merged on top of the request when a
+      response came back unusable (malformed JSON / schema violation) and
+      the request is retried. The default applies a mild repetition penalty
+      — a *deterministic* nudge that breaks greedy repetition loops without
+      introducing randomness. Sampling parameters are NEVER changed
+      automatically beyond this: in particular temperature is only ever
+      what the user configured; pass e.g. {} to retry with the request
+      untouched, or add parameters explicitly to opt in.
     """
 
     host: str
@@ -73,6 +90,9 @@ class BackendConfig:
     strict_schema: bool = False
     store_cache: bool = True
     request_defaults: dict = field(default_factory=dict)
+    retry_overrides: dict = field(
+        default_factory=lambda: dict(DEFAULT_RETRY_OVERRIDES)
+    )
 
     @property
     def address(self) -> str:
