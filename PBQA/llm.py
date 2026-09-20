@@ -15,9 +15,26 @@ from PBQA.backends import (
     detect_engine,
 )
 from PBQA.db import DB, resolve_path, path_exists
-from PBQA.schema import lock_schema, resolve_refs
+from PBQA.schema import lock_schema, resolve_refs, validate_response
 
 log = logging.getLogger("PBQA.llm")
+
+
+def _parse_and_check(content: str, schema: dict):
+    """Parse structured output and verify it against the schema.
+
+    Returns (parsed, None) when the content is usable, else (best-effort
+    parsed value, reason). The library's core guarantee lives here: ask()
+    never hands back data that does not satisfy the schema it promised.
+    """
+    try:
+        parsed = json.loads(content)
+    except json.JSONDecodeError as e:
+        return None, f"malformed JSON: {e}"
+    violation = validate_response(parsed, schema)
+    if violation is not None:
+        return parsed, f"schema violation: {violation}"
+    return parsed, None
 
 
 class LLM:
@@ -436,33 +453,36 @@ class LLM:
             use_cache=use_cache,
         )
         content = result["content"]
-        try:
-            llm_response = json.loads(content) if schema else content
-        except json.JSONDecodeError as decode_err:
-            # Grammar-constrained output can still arrive malformed —
-            # typically a generation cut at max_tokens mid-escape
-            # (finish_reason=length ⇒ runaway). Log the evidence,
-            # retry once uncached, then fail loudly with the tail.
+        if schema:
+            llm_response, defect = _parse_and_check(content, schema)
+        else:
+            llm_response, defect = content, None
+        if defect is not None:
+            # Structured output arrived unusable, in one of two ways that
+            # share a recovery path:
+            # - malformed JSON: typically a generation cut at max_tokens
+            #   mid-escape — a greedy repetition attractor (e.g. endless
+            #   null escapes inside a legal JSON string). Identical params
+            #   at temp 0 replay the exact same loop, so the retry jitters
+            #   sampling and adds a repetition penalty (engines ignore
+            #   penalty keys they don't know).
+            # - a schema violation: clean JSON whose values escape the
+            #   grammar — enforcement silently failing (engine drift, an
+            #   ignored request field). Verified, never assumed.
+            # Log the evidence, retry once uncached, then fail loudly.
             log.warning(
-                f"Malformed JSON from {backend.config.address} for "
-                f"{pattern}: {decode_err}. "
+                f"Unusable structured output from {backend.config.address} "
+                f"for {pattern}: {defect}. "
                 f"finish_reason={result.get('finish_reason')}, "
                 f"completion_tokens={result.get('usage', {}).get('completion_tokens')}, "
                 f"len={len(content)}, tail={content[-200:]!r}. "
                 f"Retrying once without cache, with sampling jitter."
             )
-            # A malformed grammar-constrained response is almost always a
-            # degenerate repetition loop run to max_tokens (a greedy
-            # attractor — e.g. endless null escapes inside a legal JSON
-            # string). Retrying with identical params at temp 0 replays the
-            # exact same loop; jittered sampling plus a repetition penalty
-            # breaks the attractor. Engines ignore penalty keys they don't
-            # know.
             jittered = {
                 **overrides,
-                "temperature": max(0.4, float(overrides.get("temperature") or 0)),
-                "repetition_penalty": 1.15,  # vLLM
-                "repeat_penalty": 1.15,  # llama.cpp
+                "temperature": max(0.3, float(overrides.get("temperature") or 0)),
+                "repetition_penalty": 1.1,  # vLLM
+                "repeat_penalty": 1.1,  # llama.cpp
             }
             result = backend.generate(
                 messages=messages,
@@ -473,15 +493,14 @@ class LLM:
                 use_cache=False,
             )
             content = result["content"]
-            try:
-                llm_response = json.loads(content)
-            except json.JSONDecodeError as retry_err:
+            llm_response, defect = _parse_and_check(content, schema)
+            if defect is not None:
                 raise ValueError(
-                    f"Model returned malformed JSON for pattern "
-                    f"'{pattern}' after retry: {retry_err}. "
+                    f"Model returned unusable structured output for pattern "
+                    f"'{pattern}' after retry: {defect}. "
                     f"finish_reason={result.get('finish_reason')}, "
                     f"tail: {content[-300:]!r}"
-                ) from retry_err
+                )
         log.info(f"Response:\n{json.dumps(llm_response, indent=4)}")
 
         self._mark_healthy(backend)

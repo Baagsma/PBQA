@@ -184,6 +184,6 @@ def test_jittered_retry_survives_refusal(transport):
     assert result["response"] == {"temperature": 20.0, "condition": "sunny"}
     malformed, refused, retried = chat_payloads(server)
     assert malformed["temperature"] == 0 and "min_p" in malformed
-    assert refused["temperature"] >= 0.4 and "min_p" in refused
+    assert refused["temperature"] >= 0.3 and "min_p" in refused
     assert retried["temperature"] == refused["temperature"]
     assert "min_p" not in retried

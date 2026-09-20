@@ -16,6 +16,7 @@ setup(
     packages=find_packages(),
     install_requires=[
         "PyYAML",
+        "jsonschema",  # response verification — grammar enforcement is checked, not assumed
         "requests",
         "accelerate",
         "transformers",

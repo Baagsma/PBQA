@@ -72,3 +72,30 @@ def lock_schema(schema: dict) -> dict:
         _lock(defn)
 
     return schema
+
+
+def validate_response(instance, schema: dict):
+    """Return a human-readable description of the first schema violation,
+    or None when the instance satisfies the schema.
+
+    Grammar enforcement is verified, never assumed: an engine behind a
+    router can drift, a request field can be silently ignored, and the
+    output still parses as clean JSON with out-of-schema values (observed
+    live: an out-of-enum "combat" skill through a List[enum] grammar,
+    PINE 2026-07-16). This check is what turns "the grammar should have
+    prevented that" into the guarantee PBQA promises.
+    """
+    import jsonschema
+
+    validator = jsonschema.Draft202012Validator(schema)
+    errors = sorted(
+        validator.iter_errors(instance), key=lambda e: (list(map(str, e.absolute_path)), e.message)
+    )
+    if not errors:
+        return None
+    first = errors[0]
+    path = "$" + "".join(
+        f"[{p}]" if isinstance(p, int) else f".{p}" for p in first.absolute_path
+    )
+    more = f" (+{len(errors) - 1} more)" if len(errors) > 1 else ""
+    return f"{path}: {first.message}{more}"
