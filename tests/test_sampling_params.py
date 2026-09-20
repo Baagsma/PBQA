@@ -195,13 +195,14 @@ def test_user_opted_retry_temperature_survives_refusal(transport):
     # The live 2026-07-31 chain, now reachable only by explicit opt-in: a
     # user-configured retry temperature above 0 turns the ever-present min_p
     # into a 400 on this speculative-decoding server; the strip-retry heals it.
-    llm, server = make_vllm_llm(
-        transport, temperature=0,
-        retry_overrides={"temperature": 0.3, "repetition_penalty": 1.1},
-    )
+    # retry_overrides is per invocation — passed on the ask() call itself.
+    llm, server = make_vllm_llm(transport, temperature=0)
     server.chat_contents = ['{"temperature": 20.0, "condition": "sun']
 
-    result = llm.ask(input="what's the weather?", pattern="weather", model=MODEL)
+    result = llm.ask(
+        input="what's the weather?", pattern="weather", model=MODEL,
+        retry_overrides={"temperature": 0.3, "repetition_penalty": 1.1},
+    )
 
     assert result["response"] == {"temperature": 20.0, "condition": "sunny"}
     malformed, refused, retried = chat_payloads(server)

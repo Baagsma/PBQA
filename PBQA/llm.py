@@ -19,6 +19,16 @@ from PBQA.schema import lock_schema, resolve_refs, validate_response
 
 log = logging.getLogger("PBQA.llm")
 
+# Applied only on the retry after an unusable response, unless the ask()
+# call passes its own retry_overrides: a mild repetition penalty
+# deterministically breaks greedy repetition loops (it reshapes the logits
+# before argmax) without introducing randomness. Temperature is deliberately
+# absent — sampling temperature is only ever user-instigated.
+DEFAULT_RETRY_OVERRIDES = {
+    "repetition_penalty": 1.1,  # vLLM
+    "repeat_penalty": 1.1,  # llama.cpp
+}
+
 
 def _parse_and_check(content: str, schema: dict):
     """Parse structured output and verify it against the schema.
@@ -82,7 +92,6 @@ class LLM:
         store_cache: bool = True,
         strict_schema: bool = False,
         engine: str = "auto",
-        retry_overrides: dict = None,
         **kwargs,
     ) -> Backend:
         """
@@ -102,11 +111,6 @@ class LLM:
           object types in JSON schemas. Required for servers using llguidance-based
           grammar enforcement, which defaults additionalProperties to true per the
           JSON Schema spec.
-        - retry_overrides (dict): Parameters merged into the one retry after an
-          unusable response (malformed JSON / schema violation). Defaults to a mild
-          repetition penalty (deterministic loop-breaker); temperature is never
-          changed automatically — pass {} for an untouched retry, or add
-          parameters explicitly to opt in.
         - engine (str): The inference engine serving the model. "auto"
           (default) probes the server and picks the matching registered
           backend; pass an explicit name ("llamacpp", "vllm", ...) to skip
@@ -141,7 +145,6 @@ class LLM:
                 "stop": stop,
                 **kwargs,
             },
-            **({"retry_overrides": retry_overrides} if retry_overrides is not None else {}),
         )
 
         if engine == "auto":
@@ -191,7 +194,6 @@ class LLM:
 
         strict_schema = kwargs.pop("strict_schema", primary.config.strict_schema)
         store_cache = kwargs.pop("store_cache", primary.config.store_cache)
-        retry_overrides = kwargs.pop("retry_overrides", primary.config.retry_overrides)
 
         config = BackendConfig(
             host=host,
@@ -199,7 +201,6 @@ class LLM:
             strict_schema=strict_schema,
             store_cache=store_cache,
             request_defaults={**primary.config.request_defaults, **kwargs},
-            retry_overrides=retry_overrides,
         )
 
         if engine is None:
@@ -289,6 +290,7 @@ class LLM:
         schema: BaseModel = None,
         stop: List[str] = [],
         custom_history: List[dict] = None,
+        retry_overrides: dict = None,
         **kwargs,
     ) -> dict:
         """
@@ -391,7 +393,7 @@ class LLM:
             try:
                 return self._attempt_backend(
                     backend, input, pattern, model, messages, schema,
-                    prop_name, overrides, use_cache,
+                    prop_name, overrides, use_cache, retry_overrides,
                 )
             except EngineDriftError as e:
                 # The server behind this address now runs a different engine
@@ -410,7 +412,7 @@ class LLM:
                 try:
                     return self._attempt_backend(
                         replacement, input, pattern, model, messages, schema,
-                        prop_name, overrides, use_cache,
+                        prop_name, overrides, use_cache, retry_overrides,
                     )
                 except (requests.exceptions.RequestException, ValueError) as retry_err:
                     self._mark_unhealthy(replacement)
@@ -445,8 +447,14 @@ class LLM:
         prop_name: str | None,
         overrides: dict,
         use_cache: bool,
+        retry_overrides: dict = None,
     ) -> dict:
-        """Run one generation attempt on a single backend and shape the result."""
+        """Run one generation attempt on a single backend and shape the result.
+
+        ``retry_overrides`` is merged into the one retry after an unusable
+        response; None means DEFAULT_RETRY_OVERRIDES (a deterministic
+        repetition-penalty nudge — temperature is never changed
+        automatically)."""
         send_schema = (
             lock_schema(schema)
             if schema and backend.config.strict_schema
@@ -467,13 +475,16 @@ class LLM:
         else:
             llm_response, defect = content, None
         if defect is not None:
+            effective_retry = (
+                retry_overrides if retry_overrides is not None else DEFAULT_RETRY_OVERRIDES
+            )
             # Structured output arrived unusable, in one of two ways that
             # share a recovery path:
             # - malformed JSON: typically a generation cut at max_tokens
             #   mid-escape — a greedy repetition attractor (e.g. endless
             #   null escapes inside a legal JSON string). Identical params
             #   replay the exact same loop, so the retry applies the
-            #   backend's retry_overrides (default: a mild repetition
+            #   call's retry_overrides (default: a mild repetition
             #   penalty — deterministic, no randomness; temperature is
             #   never touched automatically).
             # - a schema violation: clean JSON whose values escape the
@@ -487,14 +498,14 @@ class LLM:
                 f"completion_tokens={result.get('usage', {}).get('completion_tokens')}, "
                 f"len={len(content)}, tail={content[-200:]!r}. "
                 f"Retrying once without cache, with retry overrides "
-                f"{backend.config.retry_overrides}."
+                f"{effective_retry}."
             )
             result = backend.generate(
                 messages=messages,
                 schema=send_schema,
                 pattern=pattern,
                 model=model,
-                overrides={**overrides, **backend.config.retry_overrides},
+                overrides={**overrides, **effective_retry},
                 use_cache=False,
             )
             content = result["content"]
@@ -916,6 +927,7 @@ class LLM:
         schema: BaseModel = None,
         stop: List[str] = [],
         custom_history: List[dict] = None,
+        retry_overrides: dict = None,
         **kwargs,
     ) -> dict:
         """
@@ -942,6 +954,11 @@ class LLM:
           the base set) that render AFTER the served examples. 0 (default)
           places served examples directly after all base examples.
         - use_cache (bool): Whether to use the cache for the response.
+        - retry_overrides (dict): Parameters merged into the one retry after an
+          unusable response (malformed JSON / schema violation), per invocation.
+          Defaults to a mild repetition penalty — a deterministic loop-breaker;
+          temperature is never changed automatically. Pass {} for an untouched
+          retry, or add parameters (incl. temperature) explicitly to opt in.
         - cache_slot (int): Deprecated and ignored. Cache slots are managed
           internally by the backend.
         - schema (BaseModel): The schema to use for the response.
@@ -992,6 +1009,7 @@ class LLM:
             schema=schema,
             stop=stop,
             custom_history=custom_history,
+            retry_overrides=retry_overrides,
             **kwargs,
         )
 
